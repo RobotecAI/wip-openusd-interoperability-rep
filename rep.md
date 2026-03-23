@@ -105,6 +105,16 @@ Collision geometries must explicitly specify `purpose="guide"` and `physics:appr
 1.  **Baseline Approximation (Default Variant):** The default variant must contain "convexHull" or primitive shapes.
 2.  **Advanced Approximation (Optional Variant):** A secondary variant may contain high-fidelity concave trimeshes intended for Signed Distance Field (SDF) or Hydroelastic collision generation, provided the target simulator supports these paradigms.
 
+#### 1.3.2 Visual Geometry & Level of Detail
+Each link's visual and collision scopes should be organized as sibling children (e.g., `/{link}/visual`, `/{link}/collision`).
+
+To ensure assets function across high-end renderers (Isaac Sim, O3DE), CPU-bound physics simulators (Gazebo, MuJoCo), and lightweight web viewers, assets should provide multiple geometric representations via a `visual_lod` VariantSet on the visual scope:
+1.  **High (Default Variant):** Full-fidelity source geometry. Suitable for ray-traced rendering and high-end visualization.
+2.  **Medium (Optional Variant):** Decimated geometry for real-time engines and standard simulation workloads.
+3.  **Low (Optional Variant):** Aggressively simplified for web viewers, large-scale batch simulation, and GPU-instanced scenes (e.g., Genesis).
+
+Collision meshes are not subject to visual LOD; their fidelity is governed by the `collision_fidelity` VariantSet (Section 1.3.1).
+
 ---
 
 ## 2. ROS 2 Integration Schemas
@@ -200,34 +210,57 @@ OpenUSD is a vast standard supporting complex features. To guarantee that assets
 *   **Material Terminals (Render Contexts)**: A UsdShadeMaterial acts as a container. Proprietary shaders (e.g., MDL, OSL) must not replace the universal surface output. Assets should bind a single Material universally. Inside that Material, the UsdPreviewSurface must be wired to the universal outputs:surface terminal (which glTF/web converters natively parse), while proprietary shaders may be included by wiring them to renderer-specific terminals (e.g., outputs:mdl:surface).
 *   **Texture Coordinates & UDIMs:** Multi-tile UV mapping (UDIMs) is unsupported by glTF 2.0 and many real-time engines, and must not be used. Unique UVs must be packed strictly into the [0, 1] space (Texture Atlasing). If multiple high-resolution textures are required for a single mesh, authors must partition the geometry using UsdGeomSubset (with `familyName="materialBind"`) and assign separate materials. UV coordinates outside [0, 1] are strictly reserved for seamless tiling textures using repeat wrap modes.
 
-### 3.2 Texture Baking
+### 3.2 Texture File Formats
+Texture assets must use formats portable across USD tooling and glTF export:
+*   **PNG** or **JPEG** — required as the baseline. These map directly to glTF 2.0 without transcoding.
+*   **KTX2 (Basis Universal)** — recommended for GPU-compressed textures when targeting real-time viewers, via the `KHR_texture_basisu` glTF extension.
+*   **EXR, TIFF, and other HDR/DCC formats** must not be used for albedo, normal, or ORM maps in distributed assets. These formats have no glTF pathway and are unsupported by most web viewers.
+
+### 3.3 Texture Baking
 Procedural texture graphs (noise generation, math nodes, node graphs) are not interoperable and must be baked down into explicit data using either:
 1.  **Image-Backed Textures:** Standard UV-mapped image files routed through standard UsdUVTexture shader nodes.
 2.  **Mesh primitive variables (Primvars)** such as baked vertex colors using standard USD interpolations. `"vertex"` interpolation is recommended, as `"uniform"` and `"faceVarying"` require converters to split the mesh vertices to comply with glTF’s vertex attribute requirements.
 
-### 3.3 Instanceable Leaves (Zero-Copy)
-Repetitive geometry (bolts, LED arrays on a sensor) must utilize native OpenUSD instancing to minimize memory footprint. Authors must only instance leaf geometry (visuals and colliders), not logical Prims containing PhysicsRigidBodyAPI, Joints, or Ros2*API schemas, as OpenUSD instance proxies obscure child prims from relationship targeting. Authors must use one of two mechanisms to ensure correct glTF conversion: 
+### 3.4 Geometry Constraints
+*   Collision meshes must be triangulated. Visual meshes may use quad topology, but converters targeting glTF 2.0 must triangulate at export time.
+*   Non-manifold geometry (open edges, self-intersections) should be repaired at authoring time. Physics engines and web viewers handle non-manifold meshes unpredictably.
+
+### 3.5 Instanceable Leaves (Zero-Copy)
+Repetitive geometry (bolts, LED arrays on a sensor) must utilize native OpenUSD instancing to minimize memory footprint. Authors must only instance leaf geometry (visuals and colliders), not logical Prims containing PhysicsRigidBodyAPI, Joints, or Ros2*API schemas, as OpenUSD instance proxies obscure child prims from relationship targeting. Authors must use one of two mechanisms to ensure correct glTF conversion:
 *   *Scenegraph Instancing (`instanceable=true`):* Used for identical structural components (e.g., bolts). Note: The OpenUSD specification requires the prim to compose its geometry via a composition arc (Reference or Payload) for this flag to be valid. Converters must map this to native glTF Node sharing (multiple nodes referencing a single mesh index).
 *   *Point Instancing (`UsdGeomPointInstancer`):* Used for massive arrays of atomic meshes (e.g., LED grids, warehouse clutter). It scatters a prototype using flat arrays of transforms. Converters must map this directly to the glTF EXT_mesh_gpu_instancing extension.
 
-### 3.4 Lighting
+### 3.6 Lighting
 Lighting must be authored using core UsdLux schemas. To ensure deterministic illumination across standard rasterization-based simulators (e.g., Gazebo, MuJoCo, O3DE) and compatibility with web converters, authors must adhere to the following:
 *    *Punctual lights:* Assets should prioritize standard punctual lights: `UsdLuxDistantLight` (Directional), `UsdLuxSphereLight` (Point), and `UsdLuxSphereLight` modified by the `UsdLuxShapingAPI` (Spot). Converters must map these directly to the glTF `KHR_lights_punctual` extension.
 *    *Area lights:* Complex area lights (e.g., `UsdLuxRectLight`, `UsdLuxCylinderLight`) lack universal support outside of path-traced engines and should be avoided for interoperable assets.
 *    *Emissive materials and functional lights:* The `emissiveColor` attribute on a `UsdPreviewSurface` must be used for indicators such as robot status LEDs so the source itself appears bright. However, emissive geometry must not be used for primary scene illumination, as standard simulator rasterizers will not compute their light transport. If a robot component must actively illuminate its surroundings, authors must co-locate a standard `UsdLux` punctual light with the emissive geometry under the same parent `Xform`. The material provides the visible glow of the source, while the paired `UsdLux` prim provides the interoperable scene illumination.
 
-### 3.5 Variant Baking for Export
+### 3.7 Variant Baking for Export
 While OpenUSD natively handles structural variants, many of the simulation tools and formats in the ecosystem don't, including URDF, SDF and glTF 2.0. Due to the burden of implementation, this REP proposes both a baseline and an advanced compliance:
 *    *Baseline compliance:* Converters must export only the active or default variant, destructively discarding all others. This resolved state must be baked by flattening USD composition arcs into a static, logically nested kinematic tree. Never flatten into world-space, as this permanently destroys local joint transforms and ROS TF trees.
 *    *Advanced compliance (material variants support):* Capable exporters may preserve material variations via the `KHR_materials_variants` extension. Because USD can arbitrarily override granular shader parameters, tools must evaluate each variant state, bake them into distinct glTF Material IDs in memory, and author the swap mapping.
 *    *Fallback: The glTF extension is invalid if a variant alters underlying mesh topology. If geometry changes, or if the exporter lacks discrete state-evaluation logic, tools must safely fall back to Baseline Compliance..
 
-### 3.6 Conversion and Round-Tripping
+### 3.8 Conversion and Round-Tripping
 
 OpenUSD and robotics XML formats (URDF, SDF, MJCF) are fundamentally mismatched paradigms. Because OpenUSD lacks native schemas for domain-specific data (e.g., URDF <transmission>, MJCF <actuator>), conversions are inherently lossy. Exporters must adhere to the following:
 *   *Payload Resolution:* The active simulation payload (kinematics, inertia, colliders) is the extraction priority. USD composition arcs and instance proxies must be fully baked into explicit geometry and transforms, never discarded.
 *   *API Translation:* Ros2*API schemas must map exclusively to modern extension blocks (e.g., SDF <plugin>, MJCF <extension>). Obsolete approaches such as injecting legacy <gazebo> tags into URDF are not allowed.
 *   *Discard, not inject:* OpenUSD-native metadata (layer stacks, unselected variants) must be cleanly discarded. Injecting custom, non-standard XML elements to store unmappable OpenUSD states is not recommended. If pipeline necessitates it for practicality, such metadata must be confined to valid, format-native extension points.
+
+### 3.9 Asset Versioning
+USD has no native schema versioning. To prevent silent misinterpretation as this specification evolves, assets must declare their conformance target.
+
+**Root Prim Metadata (Required):**
+*   `int rep:versionMajor` — Incremented for breaking changes (new required APIs, layout changes, new restrictions).
+*   `int rep:versionMinor` — Incremented for additive changes (new optional APIs, relaxed constraints).
+
+**Root Prim Metadata (Optional):**
+*   `string rep:authoringTool` — Identifier of the tool that produced the asset (e.g., `"o3de-2405"`, `"urdf2usd-1.2"`).
+*   `token rep:sourceFormat` — Original format if converted: `"urdf"`, `"sdf"`, `"mjcf"`, `"native"`.
+
+**Compatibility:** Major version mismatch — consumers must warn, may refuse to load. Minor version mismatch (consumer < asset) — consumers must warn, should load. Minor version mismatch (consumer > asset) — safe.
 
 ## Tools & Reference Implementations
 A REP XXXX compliance checker is to be developed and shared with the community. The tool will provide validation of all REP recommendations for OpenUSD assets and supply actionable feedback for the user for each divergence.
