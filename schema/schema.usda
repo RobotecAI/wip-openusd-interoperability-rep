@@ -57,6 +57,12 @@ over "GLOBAL" (
             dictionary world = {
                 string doc = """Default parent frame for the top-most Ros2ContextAPI."""
             }
+
+            # --- Enable/disable token ---
+            dictionary enabled = {
+                string doc = """Common boolean attribute for enabling/disabling
+                a ROS 2 interface without removing the schema application."""
+            }
         }
     }
 )
@@ -171,6 +177,26 @@ class "Ros2TopicAPI" (
         ignored for subscriptions."""
     )
 
+    uniform string ros2:topic:frame_id (
+        customData = {
+            string apiName = "frameId"
+        }
+        doc = """Overrides the Header.frame_id populated in the published
+        message. If omitted, simulators use the TF frame name of the
+        nearest ancestor that is a TF frame (implicit or explicit).
+        Only relevant for message types containing a std_msgs/Header;
+        ignored otherwise."""
+    )
+
+    uniform bool ros2:enabled = true (
+        customData = {
+            string apiName = "enabled"
+        }
+        doc = """If false, simulators must skip instantiation of this
+        interface entirely. Allows VariantSets or composition overrides
+        to declaratively toggle interfaces."""
+    )
+
     # ------------------------------------------------------------------
     # Quality of Service (QoS) Attributes
     # ------------------------------------------------------------------
@@ -260,6 +286,15 @@ class "Ros2ServiceAPI" (
         doc = """The ROS 2 service type (e.g. 'std_srvs/srv/SetBool').
         Simulators must resolve dynamically; disable on failure."""
     )
+
+    uniform bool ros2:enabled = true (
+        customData = {
+            string apiName = "enabled"
+        }
+        doc = """If false, simulators must skip instantiation of this
+        interface entirely. Allows VariantSets or composition overrides
+        to declaratively toggle interfaces."""
+    )
 }
 
 # ======================================================================
@@ -303,6 +338,15 @@ class "Ros2ActionAPI" (
         doc = """The ROS 2 action type
         (e.g. 'control_msgs/action/FollowJointTrajectory').
         Simulators must resolve dynamically; disable on failure."""
+    )
+
+    uniform bool ros2:enabled = true (
+        customData = {
+            string apiName = "enabled"
+        }
+        doc = """If false, simulators must skip instantiation of this
+        interface entirely. Allows VariantSets or composition overrides
+        to declaratively toggle interfaces."""
     )
 }
 

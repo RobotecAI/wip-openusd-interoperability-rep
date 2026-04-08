@@ -53,6 +53,9 @@ To ensure alignment with ROS standards (REP 103) and stability across solvers:
 *   **Up-Axis & Chirality:** The stage `upAxis` must be set to `"Z"`. Assets must follow the strict ROS Right-Handed coordinate convention: X-forward, Y-left, Z-up.
 *   **Root Transforms:** Assets must not rely on root-node rotations (e.g., `xformOp:rotateX = -90`) to align geometry. Points and normals should be transform-applied (frozen) to Z-up at the source level.
 *   **Asset Pivots:** For assets intended to be placed on the ground (e.g., warehouse racks), the root origin should be located at the bottom-center of the asset bounding box (Z=0) to facilitate predictable drag-and-drop scene composition in simulators. Mobile bases should adhere to REP 105 origin conventions.
+*   **Angular Units:** OpenUSD natively expresses rotations in degrees (e.g., `xformOp:rotateXYZ`, revolute joint limits), whereas ROS (REP 103) uses radians. Interoperable assets must author angular values in degrees, following OpenUSD convention. Simulators and converters bridging to ROS must perform the degree-to-radian conversion at ingestion time for all angular quantities exposed to the ROS interface (e.g., `JointState.position`, TF rotations).
+*   **Time Metadata:** The root layer must set `timeCodesPerSecond = 1.0` so that one time code equals one second. This ensures that time-sampled data (e.g., animated joint trajectories, scripted motions) plays back at the physically correct rate across all tools without requiring an additional time-scale conversion.
+
 
 ### 1.2 Asset Structure & Composition
 This REP adopts the ASWF Guidelines for Structuring USD Assets.
@@ -82,6 +85,7 @@ As illustrated in Figure 1, assets should be divided into functional layers comp
 *   **Components:** Atomic assets (e.g., a `LidarSensor`, a `Box`) must have `kind="component"` on their root prim.
 *   **Assemblies:** Aggregates (e.g., a `Warehouse` containing racks) must have `kind="assembly"` or `kind="group"`.
 *   A `component` must not contain another `component`: if finer organizational granularity is required, authors must use kind="subcomponent" allowing converters to easily identify the "atomic units" of the scene.
+*   **Prim Naming:** All Prim names that may generate ROS identifiers (TF frame names, topic segments) must be valid ROS names: they must use only lowercase alphanumeric characters and underscores, must not start with a digit, and must not contain hyphens, spaces, or other special characters. OpenUSD permits a broader character set in Prim names (e.g., hyphens, CamelCase); asset authors must restrict themselves to the ROS-safe subset. Converters importing assets with non-compliant names should sanitize them (e.g., replace `-` with `_`, lowercase) and emit a warning.
 
 #### 1.2.3 Composition Arcs (LIVRPS Constraints)
 To guarantee that simulation assets remain self-contained, portable, and predictable across different simulator parsers, asset authors must adhere to the following constraints regarding OpenUSD's LIVRPS composition arcs:
@@ -115,6 +119,19 @@ OpenUSD's native instancing mechanisms are designed for repetitive visual and st
 *    **Canonical Assets:** Authors must distribute a single, self-contained canonical environment.
 *    **Runtime Delegation:** Simulators supporting massive parallelism are expected to handle environment replication natively at runtime via their own APIs. Authors must not bake thousands of physics-enabled clones into the source file.
 
+#### 1.2.7 Transform Op Conventions
+To ensure deterministic transform interpretation across tools and simulators, assets must adhere to the following `xformOp` conventions:
+*   **Preferred Form:** Link and joint-frame prims should author transforms using the decomposed Translate-Orient-Scale (TOS) form: `xformOp:translate`, `xformOp:orient` (quaternion), and optionally `xformOp:scale`. This maps cleanly to ROS `geometry_msgs/Transform` and physics engine internal representations.
+*   **Fallback:** A single `xformOp:transform` (4×4 matrix) is permitted when authored by automated tools (e.g., CAD exporters). Simulators and converters must support both forms.
+*   **Prohibited Patterns:** Assets must not author redundant or conflicting `xformOpOrder` stacks (e.g., multiple successive rotations that could be collapsed). The `xformOpOrder` must contain only one logical transform per prim.
+
+#### 1.2.8 File Format Guidance
+OpenUSD supports multiple serialization formats. To balance human readability, tool compatibility, and performance, assets should follow these conventions:
+*   **Binary (`.usdc`):** Mesh geometry, point clouds, and large attribute arrays must use the binary Crate format for performance. This is the recommended format for `geometries.usd` and `materials.usd` in the ETL pipeline.
+*   **ASCII (`.usda`):** Structural layers (e.g., `base.usd`, `asset_physics.usd`, `asset_ros.usd`) and the entry-point `asset.usd` should use the ASCII format to enable human review, diffing, and version control.
+*   **Extension-Agnostic (`.usd`):** The `.usd` extension (which auto-detects format) is permitted for entry-point files and references. Authors should be consistent within a single asset package.
+*   **USDZ:** For distribution as a single archive (e.g., web preview, drag-and-drop into tools), assets may be packaged as `.usdz`. USDZ archives must be uncompressed ZIP files containing only USD layers and their dependent assets (textures, meshes). USDZ is a read-only format; it must not be used as the authoring format.
+
 ### 1.3 Physics
 *   **Rigid Body Hierarchy:** Assets should utilize Logical Nesting to represent kinematic chains (e.g., `Forearm` is a child of `UpperArm`). This preserves the Scene Graph for TF tree generation and ensures compatibility with parsers expecting URDF/SDF-like topologies (e.g., MuJoCo).
     *  Simulators that require flat hierarchies are responsible for flattening the graph at import time. The asset itself must remain logically nested.
@@ -136,6 +153,7 @@ OpenUSD's native instancing mechanisms are designed for repetitive visual and st
     *   `float mimic:offset` (Default: `0.0`): Constant offset in the source joint's native units.
     *   *Note: UsdPhysics does not currently provide a joint coupling mechanism. This schema fills that gap. Should AOUSD/ASWF standardize an equivalent under `UsdPhysics`, this REP would adopt the upstream schema.*
 *   **Deformable Bodies:** A vendor-neutral schema for deformable bodies is not yet ratified. Assets must isolate deformable soft-body physics into feature layer for specific domain or vendor (see Section 1.2.1). The asset's default variant must provide a rigid-body fallback approximation for interoperability.
+*   **Uniform Scale:** Prims bearing `PhysicsRigidBodyAPI` or `PhysicsCollisionAPI` must not have non-uniform scale transforms (e.g., `xformOp:scale = (1, 2, 1)`). Non-uniform scales corrupt inertia tensors, collision shapes, and joint axes in most physics solvers. Any geometric distortion must be baked directly into the mesh vertex data. Identity or uniform scale is permitted.
 
 #### 1.3.1 Collisions
 Collision geometries should explicitly specify `purpose="guide"` and `physics:approximation="none"`. To ensure assets function across both standard physics engines and advanced contact-rich solvers (e.g., Newton), assets should employ a "Dual-Fidelity Pattern" utilizing a `collision_fidelity` OpenUSD `VariantSet`:
@@ -190,6 +208,8 @@ ROS interface schemas (`RosTopicAPI`, `RosServiceAPI`, `RosActionAPI`) must be a
 For all schema types (Topics, Services, Actions) defined below:
 *   **Type Resolution:** Tooling and compliant simulators must attempt to resolve the `ros:*:type` string (e.g., `sensor_msgs/msg/Image`) dynamically against the sourced ROS environment. If the interface type is not found, the simulator must safely disable that specific interface, allow the rest of the asset to function normally, and emit a distinct warning/error.
 *   **Name Validation:** All `ros:*:name` values must strictly adhere to ROS topic naming rules (alphanumeric, underscores, and forward slashes only; cannot start with a number).
+*   **Interface Enable/Disable:** All `Ros*API` schemas support a common optional attribute:
+    *   `bool ros:enabled` (Optional, Default: `true`): If set to `false`, simulators must skip instantiation of this interface entirely. This allows VariantSets or composition overrides to declaratively toggle interfaces (e.g., disabling a camera publisher in a "headless" simulation variant) without removing the prim or the schema application.
 
 ### 2.4 Topic Interface (`RosTopicAPI`)
 Applies to Prims that exchange streaming ROS data.
@@ -199,6 +219,7 @@ Applies to Prims that exchange streaming ROS data.
 *   `string ros:topic:name`: The topic name relative to the active namespace.
 *   `string ros:topic:type`: The ROS message type.
 *   `double ros:topic:publish_rate`: Target publication frequency in Hz. Required for publishers; ignored for subscriptions.
+*   `string ros:topic:frame_id` (Optional): Overrides the `Header.frame_id` populated in the published message. If omitted, simulators must use the TF frame name of the nearest ancestor that is a TF frame (implicit or explicit, as defined in Section 2.7). This attribute is only relevant for message types that contain a `std_msgs/Header`; it is ignored otherwise.
 
 **Quality of Service (QoS):**
 Maps directly to `rmw_qos_profile_t` policies. If an attribute is omitted, simulators must assume the specified defaults. *(Note: As per REP 2003, simulated sensors should default to `"system_default"` which maps to best-effort, while map publishers should use `"transient_local"`).*
@@ -239,6 +260,26 @@ Note: The broadcast frequency of TF frames is an implementation detail left to t
 
 ### 2.8 Optical Frames
 OpenUSD cameras natively face the -Z axis, whereas ROS optical frames (REP 103) must face +Z. To bridge this without opaque simulator-side rotations, authors must decouple the physical sensor from its optical interface. Authors must create a child UsdGeomXform (e.g., `camera_optical_frame`) rotated 180 degrees around its local X-axis. All RosTopicAPI and RosFrameAPI schemas must be applied exclusively to this optical frame, ensuring deterministic data orientation in RViz.
+
+### 2.9 Joint Name Mapping
+The `sensor_msgs/msg/JointState` message is the primary interface for joint-level data in ROS. Downstream consumers (`ros2_control`, MoveIt, teleoperation dashboards) identify joints by a stable, flat string in `JointState.name[]`. To ensure consistent naming across simulators:
+
+*   **Name Derivation:** Simulators must populate `JointState.name[]` using the **Prim name** of the `UsdPhysicsJoint` prim (i.e., the final path element, not the full prim path). Prim names must comply with the naming rules in Section 1.2.2.
+*   **Namespace Stripping:** Simulators must not prepend the ROS namespace to joint names. Joint names must be stable and namespace-independent so that controller configurations (e.g., `ros2_control` YAML) work without knowledge of deployment-time remapping. For example, a joint prim `/World/my_robot/base_link/shoulder_joint` under a `RosContextAPI` with `namespace="/robot_1"` must appear as `"shoulder_joint"` in the `JointState` message — not as the full path or as `"robot_1/shoulder_joint"`.
+*   **Name Override:** To support assets where the USD prim name cannot match the required ROS joint name (e.g., legacy URDF conversions, prim name collisions across referenced sub-assets), authors may author:
+    *   `string ros:joint:name` (Optional): If present on a `UsdPhysicsJoint` prim, this value must be used as the `JointState.name` entry instead of the prim name.
+*   **Ordering:** The order of joints in `JointState.name[]` should follow a depth-first traversal of the kinematic tree rooted at the `RosContextAPI` prim.
+
+### 2.10 Simulation Clock
+A functioning simulation clock is a prerequisite for correct ROS simulation behavior (`use_sim_time`). The clock interface is declared using the standard `RosTopicAPI` schema:
+*   **Placement:** The clock publisher must be placed on (or directly beneath) the prim bearing the top-level `RosContextAPI` in the simulation stage. There must be at most one clock publisher per resolved stage.
+*   **Required Attributes:**
+    *   `ros:topic:role = "publisher"`
+    *   `ros:topic:name = "/clock"` — The topic name must be absolute (leading `/`) to ensure it is not affected by namespace prefixing, as the clock is a stage-global resource.
+    *   `ros:topic:type = "rosgraph_msgs/msg/Clock"`
+    *   `ros:topic:publish_rate`: The target simulation clock publish rate in Hz.
+*   **QoS:** The clock publisher should use `ros:topic:qos:reliability = "best_effort"` and `ros:topic:qos:durability = "volatile"` to match the default `use_sim_time` subscription profile.
+*   **Simulator Responsibility:** Simulators must drive the clock message from their internal simulation time-step. The actual time resolution and jitter characteristics are implementation-defined.
 
 ---
 
