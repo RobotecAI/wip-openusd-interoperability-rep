@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak (Robotec.ai) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -19,7 +19,7 @@ This REP defines a standard schema and strict profile of OpenUSD (Universal Scen
 2.  **Runtime integrations** (ROS Interfaces).
 3.  **Converters and web visualization** (especially glTF 2.0 conversion).
 
-To achieve this, the specification addresses three key areas:
+To achieve this, the specification addresses four key areas:
 *   **Section 1** adopts existing upstream standards and recommendations (AOUSD, ASWF, NVIDIA) to establish a baseline for correct simulation assets.
 *   **Section 2** defines novel, declarative API schemas for ROS interfaces to ensure engine-agnostic runtime behavior.
 *   **Section 3** defines a strict interoperability profile to support export pathways to other formats, ensuring compatibility with standards like glTF 2.0.
@@ -62,7 +62,7 @@ This REP adopts the ASWF Guidelines for Structuring USD Assets.
 
 #### 1.2.1 Schema Isolation and Functional Layering (The ETL Pipeline)
 
-To avoid "Unknown Schema" errors in standard 3D authoring tools (e.g., Blender, Maya) and to ensure assets remain modular, functional layering (Extract-Transform-Load) should be utilized for ROS interfaces, physics, and simulator-specific tooling syntax. 
+To avoid "Unknown Schema" errors in standard 3D authoring tools (e.g., Blender, Maya) and to ensure assets remain modular, functional layering (Extract-Transform-Load) should be utilized for ROS interfaces, physics, and simulator-specific tooling syntax.
 
 This REP endorses the ETL composition architecture developed collaboratively by NVIDIA, Intrinsic, and Disney Research for OpenUSD robotics assets.
 
@@ -91,7 +91,7 @@ As illustrated in Figure 1, assets should be divided into functional layers comp
 To guarantee that simulation assets remain self-contained, portable, and predictable across different simulator parsers, asset authors must adhere to the following constraints regarding OpenUSD's LIVRPS composition arcs:
 *   **[L] Local:** Primary authoring of overrides and properties on the asset is fully supported.
 *   **[I] Inherits & [S] Specializes:** Asset authors should not rely on `Inherits` or `Specializes` arcs that target class definitions outside the asset's own layer stack for core robot kinematics, physics APIs, or ROS schemas when distributing standalone assets. These arcs create hard dependencies on external class hierarchies; if a simulator's environment lacks the base class definitions, the asset will fail to parse correctly. The inherits-instanceable pattern, where the class prim is defined within the same asset, remains valid and is recommended for applying uniform overrides across instances.
-*   **[V] VariantSets:** Permitted and encouraged for asset reusability (see Section 1.2.3).
+*   **[V] VariantSets:** Permitted and encouraged for asset reusability (see Section 1.2.4).
 *   **[R] References:** Permitted for logical assembly (e.g., composing a robot by referencing an independent `arm.usd` and `base.usd`).
 *   **[P] Payloads (The Payload Pattern):** Heavy data (high-resolution meshes, point clouds, large textures) must be referenced via Payloads rather than standard References. 
     *   Payloads must not gate joint or link prims themselves. The kinematic topology (Prims bearing `PhysicsRigidBodyAPI`, `PhysicsJoint` schemas, and `Ros*API` schemas) must reside in the primarily loaded scene graph (e.g., via Local authoring or standard References). 
@@ -133,9 +133,7 @@ OpenUSD supports multiple serialization formats. To balance human readability, t
 *   **USDZ:** For distribution as a single archive (e.g., web preview, drag-and-drop into tools), assets may be packaged as `.usdz`. USDZ archives must be uncompressed ZIP files containing only USD layers and their dependent assets (textures, meshes). USDZ is a read-only format; it must not be used as the authoring format.
 
 ### 1.3 Physics
-*   **Rigid Body Hierarchy:** Assets should utilize Logical Nesting to represent kinematic chains (e.g., `Forearm` is a child of `UpperArm`). This preserves the Scene Graph for TF tree generation and ensures compatibility with parsers expecting URDF/SDF-like topologies (e.g., MuJoCo).
-    *  Simulators that require flat hierarchies are responsible for flattening the graph at import time. The asset itself must remain logically nested.
-*   **Joint Placement:** While `UsdPhysicsJoint` prims rely on relational targeting (`body0` and `body1`) rather than hierarchy, asset authors should place the Joint prim as a sibling adjacent to the child link it connects, within the scope of the parent link. This ensures self-contained modularity.
+*   **Joint Placement:** Asset authors should place the joint prim as a sibling adjacent to the child link it connects, within the scope of the parent link, to ensure self-contained modularity. Note that `UsdPhysicsJoint` prims rely on relational targeting (`body0` and `body1`) rather than hierarchy, which means parsers must reconstruct the kinematic tree exclusively from these relationships.
 *   **Joint Limits:** Non-continuous joints (e.g., revolute, prismatic) must author explicit `physics:lowerLimit` and `physics:upperLimit` attributes.
 *   **Articulation Roots:** A composed simulation stage must contain at most one `UsdPhysicsArticulationRootAPI` per connected kinematic tree. 
     *   Assets (e.g., a modular gripper) should be self-contained with an articulation root for standalone use. 
@@ -192,15 +190,59 @@ Neither OpenUSD nor glTF 2.0 currently standardize the specification of ROS inte
 
 ### 2.1 The ROS Context (`RosContextAPI`)
 The root prim of a ROS-interfaced simulation asset may define its context namespace.
-*   `string ros:context:namespace`: Prefixes all topics within this scope (e.g., `/robot_1`). The namespace is additive in the asset hierarchy and with a top-level namespace set during simulation deployment (e.g., via the `SpawnEntity` service).
+*   `string ros:context:namespace`: Prefixes all topics within this scope (e.g., `robot_1`). Multiple values across the hierarchy are concatenated in top-down order. See Section 2.1.1 for full rules.
 *   `int ros:context:domain_id` (Optional): Overrides the default ROS Domain ID for interfaces descending from this context.
 *   `string ros:context:parent_frame` (Optional, Default: `"world"`): Defines the parent `frame_id` used when the simulator broadcasts the ground-truth transform of this context's root prim. It is only valid for the top-most context in the resolved USD Stage and ignored otherwise.
+
+#### 2.1.1 Hierarchical Namespace Concatenation
+
+The effective namespace is the top-down concatenation of `ros:context:namespace` attributes along the ancestor chain, automatically joined by `/` (e.g., `"robot_1"` and `"left_camera"` produce `/robot_1/left_camera`). An absent or empty attribute contributes no segment. Segments follow two authoring modes:
+*   **Composable (default):** A bare name with no leading or trailing `/` and no runtime substitutions (`~`, `{}`).
+*   **Absolute:** A leading `/` resets the chain, ignoring all ancestor values.
+
+`ros:context:domain_id` is resolved from the nearest ancestor `RosContextAPI` prim; the simulator's default applies if none is set. `ros:context:parent_frame` is only valid on the outermost `RosContextAPI` in the stage and must be ignored on nested contexts.
+
+TF frames for all joints and links within one robot must be published on a single `/tf` and `/tf_static` topic, scoped using only the outermost `RosContextAPI` namespace. Sub-namespace segments must not be appended to the TF topic name.
+
+Each robot instance must carry a unique `ros:context:namespace` on its root prim; authors should use the stage prim name (e.g., `robot_1`, `robot_2`).
+
+A modular asset's root namespace must be authored on its `defaultPrim`. When referencing that asset elsewhere, namespace overrides must be placed on the entry-point prim containing the composition arc to preserve `instanceable = true` compatibility. For duplicate sub-assets, each reference's entry-point prim must carry a distinct namespace via a local opinion — no source file modification is required. For example:
+
+<details>
+<summary>Example: Overriding namespace on duplicate sub-asset references</summary>
+
+```
+def Xform "robot" (
+    prepend apiSchemas = ["RosContextAPI"]
+) {
+    string ros:context:namespace = "robot_1"
+
+    def Xform "camera_left" (
+        references = @./camera_module.usd@
+        prepend apiSchemas = ["RosContextAPI"]
+    ) {
+        string ros:context:namespace = "camera_left"  # overrides "camera" from source
+    }
+
+    def Xform "camera_right" (
+        references = @./camera_module.usd@
+        prepend apiSchemas = ["RosContextAPI"]
+    ) {
+        string ros:context:namespace = "camera_right"  # overrides "camera" from source
+    }
+}
+```
+
+</details>
+
+`RosContextAPI` prims must reside outside Payload arcs so the namespace graph can be resolved without loading heavy geometry (see Section 2.2). Sub-assets intended for per-instance namespace override should not set `instanceable = true`, as descendant prims become instance proxies whose attributes cannot be overridden; any override must be authored on the reference root prim or an ancestor outside the Payload arc.
+
 
 ### 2.2 Interface Placement
 
 ROS interface schemas (`RosTopicAPI`, `RosServiceAPI`, `RosActionAPI`) must be applied to prims according to these placement rules:
 
-*   **Robot-wide interfaces:** Aggregate interfaces spanning a kinematic tree (e.g., `JointState` publisher, `FollowJointTrajectory` server) must be placed on or directly beneath the prim bearing the `RosContextAPI`.
+*   **Robot-wide interfaces:** Aggregate interfaces spanning a kinematic tree (e.g., `JointState` publisher, `FollowJointTrajectory` server) should be placed at root prim of the robot assembly.
 *   **Sensor interfaces:** Localized interfaces (e.g., `Image`, `LaserScan`) must be placed on a child `UsdGeomXform` of the physical link. Multiple interfaces for the same sensor (e.g., `image_raw` and `camera_info`) must distribute them across separate child prims, one interface per prim.
 *   **Interface prims must reside outside payloads.** Prims bearing `Ros*API` schemas are part of the lightweight kinematic/interface graph and must be traversable without loading geometry payloads.
 
@@ -261,27 +303,19 @@ Note: The broadcast frequency of TF frames is an implementation detail left to t
 ### 2.8 Optical Frames
 OpenUSD cameras natively face the -Z axis, whereas ROS optical frames (REP 103) must face +Z. To bridge this without opaque simulator-side rotations, authors must decouple the physical sensor from its optical interface. Authors must create a child UsdGeomXform (e.g., `camera_optical_frame`) rotated 180 degrees around its local X-axis. All RosTopicAPI and RosFrameAPI schemas must be applied exclusively to this optical frame, ensuring deterministic data orientation in RViz.
 
-### 2.9 Joint Name Mapping
-The `sensor_msgs/msg/JointState` message is the primary interface for joint-level data in ROS. Downstream consumers (`ros2_control`, MoveIt, teleoperation dashboards) identify joints by a stable, flat string in `JointState.name[]`. To ensure consistent naming across simulators:
+### 2.9 Prohibited Interfaces
 
-*   **Name Derivation:** Simulators must populate `JointState.name[]` using the **Prim name** of the `UsdPhysicsJoint` prim (i.e., the final path element, not the full prim path). Prim names must comply with the naming rules in Section 1.2.2.
-*   **Namespace Stripping:** Simulators must not prepend the ROS namespace to joint names. Joint names must be stable and namespace-independent so that controller configurations (e.g., `ros2_control` YAML) work without knowledge of deployment-time remapping. For example, a joint prim `/World/my_robot/base_link/shoulder_joint` under a `RosContextAPI` with `namespace="/robot_1"` must appear as `"shoulder_joint"` in the `JointState` message — not as the full path or as `"robot_1/shoulder_joint"`.
-*   **Name Override:** To support assets where the USD prim name cannot match the required ROS joint name (e.g., legacy URDF conversions, prim name collisions across referenced sub-assets), authors may author:
-    *   `string ros:joint:name` (Optional): If present on a `UsdPhysicsJoint` prim, this value must be used as the `JointState.name` entry instead of the prim name.
-*   **Ordering:** The order of joints in `JointState.name[]` should follow a depth-first traversal of the kinematic tree rooted at the `RosContextAPI` prim.
+Simulator-level interfaces are prohibited in assets to avoid clashes, including:
 
-### 2.10 Simulation Clock
-A functioning simulation clock is a prerequisite for correct ROS simulation behavior (`use_sim_time`). The clock interface is declared using the standard `RosTopicAPI` schema:
-*   **Placement:** The clock publisher must be placed on (or directly beneath) the prim bearing the top-level `RosContextAPI` in the simulation stage. There must be at most one clock publisher per resolved stage.
-*   **Required Attributes:**
-    *   `ros:topic:role = "publisher"`
-    *   `ros:topic:name = "/clock"` — The topic name must be absolute (leading `/`) to ensure it is not affected by namespace prefixing, as the clock is a stage-global resource.
-    *   `ros:topic:type = "rosgraph_msgs/msg/Clock"`
-    *   `ros:topic:publish_rate`: The target simulation clock publish rate in Hz.
-*   **QoS:** The clock publisher should use `ros:topic:qos:reliability = "best_effort"` and `ros:topic:qos:durability = "volatile"` to match the default `use_sim_time` subscription profile.
-*   **Simulator Responsibility:** Simulators must drive the clock message from their internal simulation time-step. The actual time resolution and jitter characteristics are implementation-defined.
+*   `/clock` topic (`rosgraph_msgs/msg/Clock` interface) for simulation time.
+*   Any interfaces included in the `simulation_interfaces` package (e.g. spawning, simulation control).
 
----
+### 2.10 Custom names to ROS joints.
+
+Number of concepts in ROS (e.g. robot descriptions, controllers) rely on joints names. 
+To ensure that joints are correctly identified and mapped to said concepts, the custom property `ros:joint:name` must be applied to all Prims bearing built-in `UsdPhysicsJoint` schema. 
+This string value is source of joint name for all ROS communications (e.g., `FollowJointTrajectory` action goals, `JointState` messages), intergration with ROS tools (e.g., `ros2_control`), and mapping to other formats (e.g., MJCF's `<joint name="">`).
+If this property is missing, simulators must fall back to using the prim name.
 
 ## 3. Export and Conversion
 
@@ -334,6 +368,12 @@ OpenUSD and robotics XML formats (URDF, SDF, MJCF) are fundamentally mismatched 
 *   **Payload Resolution:** The active simulation payload (kinematics, inertia, colliders) is the extraction priority. OpenUSD composition arcs and instance proxies must be fully baked into explicit geometry and transforms, never discarded.
 *   **API Translation:** Ros*API schemas must map exclusively to modern extension blocks (e.g., SDF `<plugin>`, MJCF `<extension>`). Obsolete approaches such as injecting legacy `<gazebo>` tags into URDF are not allowed.
 *   **Discard, not inject:** OpenUSD-native metadata (layer stacks, unselected variants) must be cleanly discarded. Injecting custom, non-standard XML elements to store unmappable OpenUSD states is not recommended. If pipeline necessitates it for practicality, such metadata must be confined to valid, format-native extension points.
+
+## Extensions
+
+A number of features (e.g., control interfaces, sensors specification) are proposed to extend this schema. 
+These extensions are not required for compliance with the core REP, but are recommended for simulators targeting interoperability with ROS.
+They will be defined in future iterations of this document and shared with the community for feedback.
 
 ## Tools
 

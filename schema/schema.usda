@@ -1,7 +1,7 @@
 #usda 1.0
 (
-    "ROS 2 Integration Schemas for OpenUSD Simulation Asset Interoperability."
-    " Defines declarative, engine-agnostic API schemas for ROS 2 interfaces"
+    "ROS Integration Schemas for OpenUSD Simulation Asset Interoperability."
+    " Defines declarative, engine-agnostic API schemas for ROS interfaces"
     " as specified in REP-XXXX, Section 2."
     subLayers = [
         @usd/schema.usda@
@@ -10,9 +10,9 @@
 
 over "GLOBAL" (
     customData = {
-        string libraryName       = "usdRos2"
-        string libraryPath       = "usdRos2"
-        string libraryPrefix     = "UsdRos2"
+        string libraryName       = "usdRos"
+        string libraryPath       = "usdRos"
+        string libraryPrefix     = "UsdRos"
         dictionary libraryTokens = {
             # --- Role tokens (shared by Topic, Service, Action) ---
             dictionary publisher = {
@@ -55,7 +55,7 @@ over "GLOBAL" (
 
             # --- Frame tokens ---
             dictionary world = {
-                string doc = """Default parent frame for the top-most Ros2ContextAPI."""
+                string doc = """Default parent frame for the top-most RosContextAPI."""
             }
 
             # --- Enable/disable token ---
@@ -70,10 +70,10 @@ over "GLOBAL" (
 }
 
 # ======================================================================
-# Section 2.1 - Ros2ContextAPI
+# Section 2.1 - RosContextAPI
 # ======================================================================
 
-class "Ros2ContextAPI" (
+class "RosContextAPI" (
     inherits = </APISchemaBase>
     customData = {
         token apiSchemaType = "singleApply"
@@ -89,7 +89,7 @@ class "Ros2ContextAPI" (
     """
 )
 {
-    uniform string ros2:context:namespace (
+    uniform string ros:context:namespace (
         customData = {
             string apiName = "namespace"
         }
@@ -97,7 +97,7 @@ class "Ros2ContextAPI" (
         The namespace is additive in the asset hierarchy."""
     )
 
-    uniform int ros2:context:domain_id (
+    uniform int ros:context:domain_id (
         customData = {
             string apiName = "domainId"
         }
@@ -105,7 +105,7 @@ class "Ros2ContextAPI" (
         descending from this context."""
     )
 
-    uniform string ros2:context:parent_frame = "world" (
+    uniform string ros:context:parent_frame = "world" (
         customData = {
             string apiName = "parentFrame"
         }
@@ -117,10 +117,10 @@ class "Ros2ContextAPI" (
 }
 
 # ======================================================================
-# Section 2.4 - Ros2TopicAPI
+# Section 2.4 - RosTopicAPI
 # ======================================================================
 
-class "Ros2TopicAPI" (
+class "RosTopicAPI" (
     inherits = </APISchemaBase>
     customData = {
         token apiSchemaType = "singleApply"
@@ -129,7 +129,7 @@ class "Ros2TopicAPI" (
     doc = """Applied to prims exchanging streaming ROS 2 data.
 
     Simulators spawn the corresponding publisher or subscription at
-    runtime. Robot-wide interfaces go on or beneath the Ros2ContextAPI
+    runtime. Robot-wide interfaces go on or beneath the RosContextAPI
     prim; sensor interfaces go on a child Xform of the physical link,
     one interface per prim. Interface prims must reside outside payloads
     and do not generate TF frames.
@@ -140,7 +140,7 @@ class "Ros2TopicAPI" (
     # Core Attributes (Required)
     # ------------------------------------------------------------------
 
-    uniform token ros2:topic:role (
+    uniform token ros:topic:role (
         customData = {
             string apiName = "role"
         }
@@ -149,17 +149,17 @@ class "Ros2TopicAPI" (
         subscription."""
     )
 
-    uniform string ros2:topic:name (
+    uniform string ros:topic:name (
         customData = {
             string apiName = "name"
         }
         doc = """The topic name, relative to the active ROS 2 namespace
-        inherited from the nearest ancestor Ros2ContextAPI. Must adhere
+        inherited from the nearest ancestor RosContextAPI. Must adhere
         to ROS 2 topic naming rules (alphanumeric, underscores, and
         forward slashes only; cannot start with a number)."""
     )
 
-    uniform string ros2:topic:type (
+    uniform string ros:topic:type (
         customData = {
             string apiName = "type"
         }
@@ -169,7 +169,7 @@ class "Ros2TopicAPI" (
         must safely disable this interface and emit a warning."""
     )
 
-    uniform double ros2:topic:publish_rate (
+    uniform double ros:topic:publish_rate (
         customData = {
             string apiName = "publishRate"
         }
@@ -201,7 +201,7 @@ class "Ros2TopicAPI" (
     # Quality of Service (QoS) Attributes
     # ------------------------------------------------------------------
 
-    uniform bool ros2:topic:qos:match_publisher = false (
+    uniform bool ros:topic:qos:match_publisher = false (
         customData = {
             string apiName = "qosMatchPublisher"
         }
@@ -210,7 +210,7 @@ class "Ros2TopicAPI" (
         publisher, ignoring explicit reliability and durability settings."""
     )
 
-    uniform token ros2:topic:qos:reliability = "system_default" (
+    uniform token ros:topic:qos:reliability = "system_default" (
         customData = {
             string apiName = "qosReliability"
         }
@@ -220,7 +220,7 @@ class "Ros2TopicAPI" (
         which maps to best-effort."""
     )
 
-    uniform token ros2:topic:qos:durability = "system_default" (
+    uniform token ros:topic:qos:durability = "system_default" (
         customData = {
             string apiName = "qosDurability"
         }
@@ -229,7 +229,7 @@ class "Ros2TopicAPI" (
         publishers should use 'transient_local'."""
     )
 
-    uniform token ros2:topic:qos:history = "system_default" (
+    uniform token ros:topic:qos:history = "system_default" (
         customData = {
             string apiName = "qosHistory"
         }
@@ -237,7 +237,7 @@ class "Ros2TopicAPI" (
         doc = """Maps to rmw_qos_profile_t history policy."""
     )
 
-    uniform int ros2:topic:qos:depth = 10 (
+    uniform int ros:topic:qos:depth = 10 (
         customData = {
             string apiName = "qosDepth"
         }
@@ -246,10 +246,10 @@ class "Ros2TopicAPI" (
 }
 
 # ======================================================================
-# Section 2.5 - Ros2ServiceAPI
+# Section 2.5 - RosServiceAPI
 # ======================================================================
 
-class "Ros2ServiceAPI" (
+class "RosServiceAPI" (
     inherits = </APISchemaBase>
     customData = {
         token apiSchemaType = "singleApply"
@@ -258,11 +258,11 @@ class "Ros2ServiceAPI" (
     doc = """Applied to prims handling synchronous ROS 2 requests.
 
     Simulators spawn the corresponding server or client at runtime.
-    Same placement, resolution, and TF exclusion rules as Ros2TopicAPI.
+    Same placement, resolution, and TF exclusion rules as RosTopicAPI.
     """
 )
 {
-    uniform token ros2:service:role (
+    uniform token ros:service:role (
         customData = {
             string apiName = "role"
         }
@@ -271,7 +271,7 @@ class "Ros2ServiceAPI" (
         client. Simulation assets are typically servers."""
     )
 
-    uniform string ros2:service:name (
+    uniform string ros:service:name (
         customData = {
             string apiName = "name"
         }
@@ -279,7 +279,7 @@ class "Ros2ServiceAPI" (
         Must adhere to ROS 2 naming rules."""
     )
 
-    uniform string ros2:service:type (
+    uniform string ros:service:type (
         customData = {
             string apiName = "type"
         }
@@ -298,10 +298,10 @@ class "Ros2ServiceAPI" (
 }
 
 # ======================================================================
-# Section 2.6 - Ros2ActionAPI
+# Section 2.6 - RosActionAPI
 # ======================================================================
 
-class "Ros2ActionAPI" (
+class "RosActionAPI" (
     inherits = </APISchemaBase>
     customData = {
         token apiSchemaType = "singleApply"
@@ -310,11 +310,11 @@ class "Ros2ActionAPI" (
     doc = """Applied to prims handling asynchronous, long-running ROS 2 behaviors.
 
     Simulators spawn the corresponding server or client at runtime.
-    Same placement, resolution, and TF exclusion rules as Ros2TopicAPI.
+    Same placement, resolution, and TF exclusion rules as RosTopicAPI.
     """
 )
 {
-    uniform token ros2:action:role (
+    uniform token ros:action:role (
         customData = {
             string apiName = "role"
         }
@@ -323,7 +323,7 @@ class "Ros2ActionAPI" (
         client. Simulation assets are typically servers."""
     )
 
-    uniform string ros2:action:name (
+    uniform string ros:action:name (
         customData = {
             string apiName = "name"
         }
@@ -331,7 +331,7 @@ class "Ros2ActionAPI" (
         Must adhere to ROS 2 naming rules."""
     )
 
-    uniform string ros2:action:type (
+    uniform string ros:action:type (
         customData = {
             string apiName = "type"
         }
@@ -351,10 +351,10 @@ class "Ros2ActionAPI" (
 }
 
 # ======================================================================
-# Section 2.7 - Ros2FrameAPI
+# Section 2.7 - RosFrameAPI
 # ======================================================================
 
-class "Ros2FrameAPI" (
+class "RosFrameAPI" (
     inherits = </APISchemaBase>
     customData = {
         token apiSchemaType = "singleApply"
@@ -369,7 +369,7 @@ class "Ros2FrameAPI" (
     """
 )
 {
-    uniform string ros2:frame:id (
+    uniform string ros:frame:id (
         customData = {
             string apiName = "id"
         }
@@ -377,7 +377,7 @@ class "Ros2FrameAPI" (
         Prim name is used as the frame_id."""
     )
 
-    uniform bool ros2:frame:static = true (
+    uniform bool ros:frame:static = true (
         customData = {
             string apiName = "static"
         }
