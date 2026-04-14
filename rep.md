@@ -84,7 +84,6 @@ As illustrated in Figure 1, assets should be divided into functional layers comp
 *   **Components:** Atomic assets (e.g., a `LidarSensor`, a `Box`) must have `kind="component"` on their root prim.
 *   **Assemblies:** Aggregates (e.g., a `Warehouse` containing racks) must have `kind="assembly"` or `kind="group"`.
 *   A `component` must not contain another `component`: if finer organizational granularity is required, authors must use kind="subcomponent" allowing converters to easily identify the "atomic units" of the scene.
-*   **Prim Naming:** All Prim names that may generate ROS identifiers (TF frame names, topic segments) must be valid ROS names: they must use only lowercase alphanumeric characters and underscores, must not start with a digit, and must not contain hyphens, spaces, or other special characters. OpenUSD permits a broader character set in Prim names (e.g., hyphens, CamelCase); asset authors must restrict themselves to the ROS-safe subset. Converters importing assets with non-compliant names should sanitize them (e.g., replace `-` with `_`, lowercase) and emit a warning.
 
 #### 1.2.3 Composition Arcs (LIVRPS Constraints)
 To guarantee that simulation assets remain self-contained, portable, and predictable across different simulator parsers, asset authors must adhere to the following constraints regarding OpenUSD's LIVRPS composition arcs:
