@@ -47,15 +47,14 @@ This section confirms and standardizes prior work and recommendations for OpenUS
 ### 1.1 Coordinate Systems & Units
 To ensure alignment with ROS standards (REP 103) and stability across solvers:
 
-*   **Units:** All linear dimensions in the USD stage must be defined in meters, and all mass values in kilograms.
-    *   `metersPerUnit` and `kilogramsPerUnit` metadata must be set to `1.0` in the root layer.
-    *   Fallback: while interoperable assets must adhere to 1.0, simulators and converters importing general OpenUSD assets must read these metadata tokens and  apply the appropriate scaling factors to all derived spatial and physical quantities (e.g., coordinates, torque, stiffness, inertia) at load time
+*   **Units:** The root layer must set the following stage metadata:
+    *   `metersPerUnit = 1.0` and `kilogramsPerUnit = 1.0`: all linear dimensions in meters, all masses in kilograms.
+    *   `timeCodesPerSecond = 1.0`: one time code equals one second, ensuring time-sampled data (e.g., animated joint trajectories) plays back at the correct rate without additional scaling.
+    *   Angular values must be authored in degrees, following OpenUSD convention (e.g., `xformOp:rotateXYZ`, revolute joint limits). Simulators and converters bridging to ROS must perform the degree-to-radian conversion at ingestion time for all angular quantities exposed to the ROS interface (e.g., `JointState.position`, TF rotations).
+    *   Fallback: while interoperable assets must adhere to the values above, simulators and converters importing general OpenUSD assets must read these metadata tokens and apply the appropriate scaling factors to all derived spatial and physical quantities (e.g., coordinates, torque, stiffness, inertia) at load time.
 *   **Up-Axis & Chirality:** The stage `upAxis` must be set to `"Z"`. Assets must follow the strict ROS Right-Handed coordinate convention: X-forward, Y-left, Z-up.
 *   **Root Transforms:** Assets must not rely on root-node rotations (e.g., `xformOp:rotateX = -90`) to align geometry. Points and normals should be transform-applied (frozen) to Z-up at the source level.
 *   **Asset Pivots:** For assets intended to be placed on the ground (e.g., warehouse racks), the root origin should be located at the bottom-center of the asset bounding box (Z=0) to facilitate predictable drag-and-drop scene composition in simulators. Mobile bases should adhere to REP 105 origin conventions.
-*   **Angular Units:** OpenUSD natively expresses rotations in degrees (e.g., `xformOp:rotateXYZ`, revolute joint limits), whereas ROS (REP 103) uses radians. Interoperable assets must author angular values in degrees, following OpenUSD convention. Simulators and converters bridging to ROS must perform the degree-to-radian conversion at ingestion time for all angular quantities exposed to the ROS interface (e.g., `JointState.position`, TF rotations).
-*   **Time Metadata:** The root layer must set `timeCodesPerSecond = 1.0` so that one time code equals one second. This ensures that time-sampled data (e.g., animated joint trajectories, scripted motions) plays back at the physically correct rate across all tools without requiring an additional time-scale conversion.
-
 
 ### 1.2 Asset Structure & Composition
 This REP adopts the ASWF Guidelines for Structuring USD Assets.
