@@ -122,6 +122,7 @@ OpenUSD's native instancing mechanisms are designed for repetitive visual and st
 #### 1.2.7 Transform Op Conventions
 To ensure deterministic transform interpretation across tools and simulators, assets must adhere to the following `xformOp` conventions:
 *   **Preferred Form:** Link and joint-frame prims should author transforms using the decomposed Translate-Orient-Scale (TOS) form: `xformOp:translate`, `xformOp:orient` (quaternion), and optionally `xformOp:scale`. This maps cleanly to ROS `geometry_msgs/Transform` and physics engine internal representations.
+*   **Euler Angles for Authoring:** Euler-angle `xformOps` (e.g., `xformOp:rotateXYZ`) are acceptable as a human-friendly authoring form. The ROS ecosystem has long relied on URDF's `rpy` (roll-pitch-yaw) convention, which maps directly to OpenUSD's `xformOp:rotateXYZ`: both apply extrinsic fixed-axis rotations in X-Y-Z order (note that URDF values are in radians while OpenUSD uses degrees). Converters and export tools should normalize Euler-authored transforms into the preferred TOS (quaternion) form to avoid ambiguity and gimbal-lock issues in downstream consumers.
 *   **Fallback:** A single `xformOp:transform` (4×4 matrix) is permitted when authored by automated tools (e.g., CAD exporters). Simulators and converters must support both forms.
 *   **Prohibited Patterns:** Assets must not author redundant or conflicting `xformOpOrder` stacks (e.g., multiple successive rotations that could be collapsed). The `xformOpOrder` must contain only one logical transform per prim.
 
