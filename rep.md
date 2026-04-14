@@ -150,7 +150,9 @@ OpenUSD supports multiple serialization formats. To balance human readability, t
     *   `float mimic:offset` (Default: `0.0`): Constant offset in the source joint's native units.
     *   *Note: UsdPhysics does not currently provide a joint coupling mechanism. This schema fills that gap. Should AOUSD/ASWF standardize an equivalent under `UsdPhysics`, this REP would adopt the upstream schema.*
 *   **Deformable Bodies:** A vendor-neutral schema for deformable bodies is not yet ratified. Assets must isolate deformable soft-body physics into feature layer for specific domain or vendor (see Section 1.2.1). The asset's default variant must provide a rigid-body fallback approximation for interoperability.
-*   **Uniform Scale:** Prims bearing `PhysicsRigidBodyAPI` or `PhysicsCollisionAPI` must not have non-uniform scale transforms (e.g., `xformOp:scale = (1, 2, 1)`). Non-uniform scales corrupt inertia tensors, collision shapes, and joint axes in most physics solvers. Any geometric distortion must be baked directly into the mesh vertex data. Identity or uniform scale is permitted.
+*   **Scale Transforms:**
+    *   **Kinematic frame prims** (those bearing `PhysicsRigidBodyAPI` or `UsdPhysicsJoint` schemas) must use identity scale (`xformOp:scale = (1, 1, 1)`) or omit `xformOp:scale` entirely. Even uniform non-identity scale on these prims corrupts inertia tensors, joint axes, and has no representation in ROS TF frames.
+    *   **Visual and collision leaf geometry** (e.g., `UsdGeomCube`, `UsdGeomMesh` children under a link) may use non-uniform scale to create derived shapes (e.g., scaling a unit cube into a cuboid). This scale must be applied only on the geometry prim itself, not on ancestor kinematic prims.
 
 #### 1.3.1 Collisions
 Collision geometries should explicitly specify `purpose="guide"` and `physics:approximation="none"`. To ensure assets function across both standard physics engines and advanced contact-rich solvers (e.g., Newton), assets should employ a "Dual-Fidelity Pattern" utilizing a `collision_fidelity` OpenUSD `VariantSet`:
