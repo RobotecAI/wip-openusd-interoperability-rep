@@ -177,18 +177,18 @@ class "RosTopicAPI" (
         ignored for subscriptions."""
     )
 
-    uniform string ros2:topic:frame_id (
+    uniform string ros:topic:override_frame_id = "" (
         customData = {
-            string apiName = "frameId"
+            string apiName = "overrideFrameId"
         }
-        doc = """Overrides the Header.frame_id populated in the published
-        message. If omitted, simulators use the TF frame name of the
-        nearest ancestor that is a TF frame (implicit or explicit).
-        Only relevant for message types containing a std_msgs/Header;
-        ignored otherwise."""
+        doc = """If non-empty, overrides the Header.frame_id populated in
+        the published message. When empty or omitted, simulators use the
+        TF frame name of the nearest ancestor that is a TF frame
+        (implicit or explicit). Only relevant for message types
+        containing a std_msgs/Header; ignored otherwise."""
     )
 
-    uniform bool ros2:enabled = true (
+    uniform bool ros:topic:enabled = true (
         customData = {
             string apiName = "enabled"
         }

@@ -262,7 +262,7 @@ Applies to Prims that exchange streaming ROS data.
 *   `string ros:topic:name`: The topic name relative to the active namespace.
 *   `string ros:topic:type`: The ROS message type.
 *   `double ros:topic:publish_rate`: Target publication frequency in Hz. Required for publishers; ignored for subscriptions.
-*   `string ros:topic:frame_id` (Optional): Overrides the `Header.frame_id` populated in the published message. If omitted, simulators must use the TF frame name of the nearest ancestor that is a TF frame (implicit or explicit, as defined in Section 2.7). This attribute is only relevant for message types that contain a `std_msgs/Header`; it is ignored otherwise.
+*   `string ros:topic:override_frame_id` (Optional, Default: `""`): If non-empty, overrides the `Header.frame_id` populated in the published message. When empty or omitted, simulators must use the TF frame name of the nearest ancestor that is a TF frame (implicit or explicit, as defined in Section 2.7). This attribute is only relevant for message types that contain a `std_msgs/Header`; it is ignored otherwise.
 
 **Quality of Service (QoS):**
 Maps directly to `rmw_qos_profile_t` policies. If an attribute is omitted, simulators must assume the specified defaults. *(Note: As per REP 2003, simulated sensors should default to `"system_default"` which maps to best-effort, while map publishers should use `"transient_local"`).*
