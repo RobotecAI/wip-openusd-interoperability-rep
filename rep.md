@@ -404,7 +404,7 @@ Existing vendor schemas that are candidates for submission under this rule inclu
 *   Named pose schemas (e.g., `IsaacNamedPose`) — store named joint configurations (and optional Cartesian IK targets) under a Robot Schema-bearing root. Must reference joints by relationship, store configurations as joint-position arrays keyed on those relationships, and avoid duplicating joint-name strings.
 *   Mount-point / site schemas (e.g., `IsaacSiteAPI`) — declare named local frames for tooling or calibration references. Submissions must resolve the overlap with `RosFrameAPI`: if the site is ROS-visible, it must compose with `RosFrameAPI` for TF broadcasting rather than carry its own broadcast flag; if it is a pure internal reference (e.g., IK target), the schema must document that explicitly.
 
-Schemas that cannot satisfy these rules are not rejected outright but must remain in a vendor proprietary layer (e.g., `isaac.usd`) until a cross-simulator equivalent is proposed.
+Schemas that cannot satisfy these rules are not rejected outright but must remain in a vendor proprietary layer (e.g., `isaac.usda`) until a cross-simulator equivalent is proposed.
 
 ### 4.2 Compliant Assets 
 
