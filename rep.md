@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA), Franco Cipollone (Ekumen) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh, Renato Gasoto (NVIDIA), Franco Cipollone (Ekumen) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -174,6 +174,26 @@ To guarantee interoperability across different solvers, physical properties and 
 ## 2. ROS Integration Schemas
 
 Neither OpenUSD nor glTF 2.0 currently standardize the specification of ROS interfaces. This section defines a set of declarative, engine-agnostic API schemas (of type `SingleApply`). Simulators are responsible for reading these schemas and generating their respective underlying execution logic.
+
+### 2.0 Declarative Intent vs. Simulator Execution
+
+The `Ros*API` schemas are **declarative authored data** describing *what* ROS interfaces an asset exposes. They are not a runtime execution format and they do not prescribe *how* a simulator realizes the interface.
+
+Compliant simulators are expected to materialize a simulator-native execution artifact from the authored `Ros*API` schemas at load time. The exact artifact is an implementation detail and may be, for example:
+
+*   A native ROS 2 node managed directly by the simulator's bridge.
+*   A generated execution-graph node graph authored into a proprietary layer (e.g., Isaac Sim OmniGraph nodes in `isaac.usd`, Gazebo system plugins, O3DE components).
+*   An interpreted dispatcher that dynamically binds the `Ros*API` to the relevant message I/O at simulation start.
+
+Three authoring rules follow from this:
+
+1.  **The authored `Ros*API` schemas are the single source of truth.** Simulator-native execution artifacts must be treated as a build product regenerated from the authored data. Assets must not carry hand-authored execution artifacts that shadow or contradict the `Ros*API` schemas.
+2.  **Execution artifacts are proprietary-layer content.** Generated or simulator-native graphs belong in the simulator's proprietary layer (Section 1.2.1) — e.g., `isaac.usd` for OmniGraph, `gazebo.usd` for Gazebo system plugins — and must never be authored into `ros.usd` or any other neutral layer.
+3.  **Round-tripping is not guaranteed.** An execution artifact produced by one simulator is not expected to be consumed by another. Only the authored `Ros*API` schemas are portable.
+
+Simulators that currently rely on hand-authored execution graphs (e.g., Isaac Sim's current OmniGraph-based ROS 2 workflow) are expected to provide a `Ros*API` → graph code generator as part of their REP conformance, with the hand-authored graphs moved into the proprietary layer as a compatibility fallback.
+
+*Note: This REP intentionally does not specify the code-generator API. Each simulator is free to implement one, share one across simulators (via a common tool), or parse the schemas directly at runtime. The Compliance Checker (see Tools) validates the authored data, not the generated execution artifact.*
 
 ### 2.1 The ROS Context (`RosContextAPI`)
 The root prim of a ROS-interfaced simulation asset may define its context namespace.
