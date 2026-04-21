@@ -131,7 +131,7 @@ OpenUSD's native instancing mechanisms are designed for repetitive visual and st
     * *Static Environments:* Fixed props (e.g., walls, racks) must possess a PhysicsCollisionAPI but omit the PhysicsRigidBodyAPI. OpenUSD implicitly treats these as having zero velocity and infinite mass.
     * *Robot Anchors:* A fixed robot base must have a valid mass > 0 and be anchored via a UsdPhysicsFixedJoint with an empty physics:body0 relationship (which natively represents the world).
     * *Kinematic Bodies:* Moving bodies that are animated but not dynamically driven by physics should set the physics:kinematicEnabled attribute to true.
-    * *Dummy Frames:* Non-physical dummy frames (e.g., `camera_optical_frame`) must not possess a `PhysicsRigidBodyAPI`. They should be tracked using the `RosFrameAPI` as defined in Section 2.8.
+    * *Dummy Frames:* Non-physical dummy frames (e.g., `camera_optical_frame`) must not possess a `PhysicsRigidBodyAPI`. They should be authored as `UsdGeomXform` prims bearing `IsaacSiteAPI` (see Sections 1.3.5 and 2.7), and listed in the articulation root's `isaac:physics:robotLinks` if they are meant to be broadcast to TF.
 *   **Inertia Representation:** Unlike URDF and SDFormat's 6-value symmetric matrix, OpenUSD requires an eigendecomposed inertia tensor. Converters must mathematically decompose the source matrix into physics:diagonalInertia (eigenvalues) and physics:principalAxes (quaternion). This native decomposed form is the strict single source of truth; custom 6-value array attributes must not be authored or parsed.
 *   **Mimic Joints:** Joints whose position is a linear function of another joint (e.g., parallel gripper fingers, coupled mechanisms) must declare the coupling declaratively using `MimicJointAPI`, a **SingleApply** API schema applied to the follower joint. `MimicJointAPI` must only be applied to `UsdPhysicsRevoluteJoint` or `UsdPhysicsPrismaticJoint` prims. The coupling operates on the joint's native positional value.
     *   `rel mimic:joint`: Relationship to the source joint. Must use a USD relationship (not a string attribute) to ensure correct path remapping under composition arcs. Mimic relationships must form a Directed Acyclic Graph (DAG); chained couplings are valid, but cycles are prohibited.
@@ -167,16 +167,19 @@ To ensure deterministic contact dynamics across engines, authors must bind a `Us
 
 Assets containing articulations must declare a canonical, engine-neutral ordering using the Robot Schema[ISAAC-ROBOT-SCHEMA] (`IsaacRobotAPI`, `IsaacLinkAPI`, `IsaacJointAPI`). Concretely:
 
-*   `IsaacRobotAPI` is applied to the articulation root prim and exposes `rel isaac:physics:robotLinks` and `rel isaac:physics:robotJoints` — ordered relationship lists that define the canonical link and joint sequence for downstream tensor layouts.
+*   `IsaacRobotAPI` is applied to the articulation root prim and exposes `rel isaac:physics:robotLinks` and `rel isaac:physics:robotJoints` — ordered relationship lists that define the canonical link and joint sequence for downstream tensor layouts *and* the canonical membership set for TF broadcasting (see Section 2.7).
 *   `IsaacLinkAPI` and `IsaacJointAPI` are applied to the corresponding `PhysicsRigidBodyAPI` and `UsdPhysicsJoint` prims to participate in the ordered lists.
 *   Multi-axis joints (D6, spherical) declare `isaac:physics:DofOffsetOpOrder` to specify the flattened DOF ordering (`TransX`, `TransY`, `TransZ`, `RotX`, `RotY`, `RotZ`).
-*   The link/joint lists may declare a proper subset of the kinematic tree when an assembly contains prims (e.g., gripper internals, non-actuated cosmetic links) that should not participate in robot-state reporting.
+*   The link/joint lists may declare a proper subset of the kinematic tree when an assembly contains prims (e.g., gripper internals, non-actuated cosmetic links) that should not participate in robot-state reporting or TF.
+*   `robotLinks` admits non-physical auxiliary frames as members via `IsaacSiteAPI`. A site is a named `UsdGeomXform` carrying a forward-axis convention (e.g., a grasp point, a tool mount, a calibration reference, an optical frame). Sites listed in `robotLinks` participate in TF broadcasting and in any name-override resolution (Section 1.3.6) exactly as `IsaacLinkAPI`-bearing rigid bodies do. Sites not listed in `robotLinks` are treated as internal references (e.g., IK targets) and are not broadcast.
 
 The Robot Schema is treated as a staging-ground extension analogous to the Newton USD Schemas (Section 1.4): the schemas are engine-neutral by construction, already authored by Isaac Sim, Isaac Lab, the URDF-to-USD converter, and Newton-based pipelines, and serve the same cross-solver tensor-stability need. The `isaac:` prefix is preserved during the staging-ground phase; should AOUSD ratify an equivalent under `UsdPhysics` or a dedicated Robot schema namespace, this REP will migrate to the ratified prefix.
 
 Assets must place Robot Schema opinions in an isolated sublayer (e.g., `robot_schema.usda`) referenced from the same composition slot as `physics.usda` per Section 1.2.1, so solvers that do not consume the schema can ignore it without breaking the neutral physics layer.
 
-*Note: Actuator and effort tensor ordering for Newton-based controllers is an anticipated extension of this same Robot Schema track — a canonical actuator list alongside `robotLinks`/`robotJoints`, keyed by relationship and aligned with the DOF ordering defined here. The specification is in development; when published by the Newton project, this REP will cite it without introducing a parallel neutral schema. Asset authors should keep the Robot Schema sublayer the single source of truth for all engine-neutral ordering metadata (links, joints, DOFs, and future actuators).*
+*Note: Actuator and effort tensor ordering for Newton-based controllers is an anticipated extension of this same Robot Schema track — a canonical actuator list alongside `robotLinks`/`robotJoints`, keyed by relationship and aligned with the DOF ordering defined here. The specification is in development; when published by the Newton project, this REP will cite it without introducing a parallel neutral schema. Asset authors should keep the Robot Schema sublayer the single source of truth for all engine-neutral ordering metadata (links, joints, DOFs, sites, and future actuators).*
+
+*Note: Promotion path. The Robot Schema APIs cited here (`IsaacRobotAPI`, `IsaacLinkAPI`, `IsaacJointAPI`, `IsaacSiteAPI`, and the name-override attributes in Section 1.3.6) are already engine-neutral by construction and consumed by Isaac Sim, Isaac Lab, URDF-to-USD converters, and Newton-based pipelines. The `isaac:` prefix reflects their current origin, not a permanent scope. A neutral specification (under `UsdPhysics`, under a dedicated Robot Schema namespace, or under `ros:*`) would unify the naming and drop the staging-ground prefix. This REP recommends that the Robot Schema be promoted through the same AOUSD / ASWF / Linux Foundation Newton path as Newton's physics schemas (Section 1.4), rather than be redefined under `ros:*` inside this REP. Redefining the schemas under a parallel prefix would discard working tooling without adding capability; promotion preserves it. Until promotion, the `isaac:*` spellings are authoritative and compliant simulators must read them.*
 
 #### 1.3.6 ROS-Facing Metadata on the Robot Schema
 
@@ -300,22 +303,29 @@ Applies to Prims handling asynchronous, long-running behaviors.
 *   `string ros:action:name`: The action name.
 *   `string ros:action:type`: The action type (e.g., `control_msgs/action/FollowJointTrajectory`).
 
-### 2.7 Frame Publishing and TF2 (`RosFrameAPI`)
-Mapping a deeply nested OpenUSD scene graph directly to a ROS TF tree can cause significant performance overhead. To prevent flooding the `/tf` topic with generic physical props (e.g., warehouse boxes), compliant simulators should not broadcast transforms for every `PhysicsRigidBodyAPI`. 
+### 2.7 Frame Publishing and TF2
 
-Instead, simulators should follow a hybrid implicit/explicit approach for broadcasting `tf2` transforms:
+Mapping a deeply nested OpenUSD scene graph directly to a ROS TF tree can cause significant performance overhead. To prevent flooding the `/tf` topic with generic physical props (e.g., warehouse boxes), compliant simulators must not broadcast transforms for every `PhysicsRigidBodyAPI`.
 
-*   **Implicit TF Broadcasting (The Asset Tree):** Simulators should automatically infer and broadcast TF frames (using the ROS-validated Prim name) for Prims that represent a ROS interface structure:
-    1.  **The ROS Root:** Any Prim possessing the `RosContextAPI` (often the `base_link`).
-    2.  **Kinematic Chains:** Any Prim possessing a `PhysicsRigidBodyAPI` that is connected (directly or recursively) via a `UsdPhysicsJoint` to a Prim already in the TF tree. This captures robot arms and wheeled bases automatically.
-    *   **Routing Rule:** If the implicit frame is connected to its parent via a `PhysicsFixedJoint`, or has no joint but is rigidly parented in the USD hierarchy, the simulator must broadcast it to `/tf_static`. All movable joint connections must be broadcast to `/tf`.
-    *   Prims bearing only `RosTopicAPI`, `RosServiceAPI`, or `RosActionAPI` do not generate TF frames. An interface prim's `frame_id` is determined by its nearest ancestor that is a TF frame (implicit or explicit).
+TF membership is declared explicitly on the Robot Schema (Section 1.3.5). The `rel isaac:physics:robotLinks` list authored on the `IsaacRobotAPI`-bearing articulation root is the canonical set of frames the simulator broadcasts to TF, ordered for tensor-layout stability. The list admits two prim shapes:
 
-*   **Explicit TF Broadcasting (`RosFrameAPI`):** To publish TFs for non-physical dummy frames (e.g., a kinematic `grasp_point`, a `camera_optical_frame`), asset authors must apply the `RosFrameAPI` schema to the target `UsdGeomXform` Prim.
-    *   `string ros:frame:id` (Optional): Overrides the TF frame name. If omitted, the validated Prim name is used.
-    *   `bool ros:frame:static` (Optional, Default: `true`): Defines the broadcast destination. If `true`, the simulator must broadcast the frame to `/tf_static` relative to its USD parent. If `false` (e.g., an Xform animated by USD TimeSamples), it must be broadcast to `/tf`.
+1.  **Rigid links.** `UsdGeomXform` prims bearing `PhysicsRigidBodyAPI` and `IsaacLinkAPI`, connected by `UsdPhysicsJoint` instances also listed in `robotJoints`. These are the physical bodies of the robot.
+2.  **Sites.** `UsdGeomXform` prims bearing `IsaacSiteAPI` — named auxiliary frames that carry a forward-axis convention but no mass or collision (e.g., a kinematic `grasp_point`, a `tool0`, a `camera_optical_frame`). A site listed in `robotLinks` is broadcast to TF; a site not listed is treated as an internal reference (e.g., an IK target) and is not broadcast.
 
-Note: The broadcast frequency of TF frames is an implementation detail left to the simulator's runtime configuration.
+A compliant simulator determines TF behaviour for a `robotLinks` member as follows:
+
+*   **Routing Rule (rigid links):** If the link is connected to its parent in the `robotLinks` chain via a `UsdPhysicsFixedJoint`, or has no joint but is rigidly parented in the USD hierarchy, the simulator must broadcast it to `/tf_static`. All movable-joint connections must be broadcast to `/tf`.
+*   **Routing Rule (sites):** If the site's local transform is constant (no `TimeSamples`), the simulator must broadcast it to `/tf_static` relative to its nearest TF ancestor. Otherwise (animated sites), the simulator must broadcast it to `/tf`.
+*   **Frame name.** The TF frame name is the value of `isaac:nameOverride` on the prim if authored (Section 1.3.6), otherwise the validated Prim name.
+*   **The ROS Root.** The outermost `RosContextAPI`-bearing prim anchors the chain; `ros:context:parent_frame` (default `"world"`) names its parent in the published TF tree.
+
+Prims bearing only `RosTopicAPI`, `RosServiceAPI`, or `RosActionAPI` do not generate TF frames; an interface prim's `frame_id` is resolved from its nearest ancestor that is a TF frame.
+
+Simulators that encounter a `robotLinks` member whose prim carries neither `IsaacLinkAPI` nor `IsaacSiteAPI` must ignore it and emit a distinct warning.
+
+*Note: The broadcast frequency of TF frames is an implementation detail left to the simulator's runtime configuration.*
+
+*Note: Earlier drafts of this REP defined a `RosFrameAPI` schema with `ros:frame:id` and `ros:frame:static` attributes for non-physical dummy frames. Those attributes duplicate `isaac:nameOverride` and the site-routing rule above. The schema is removed in favour of citing `IsaacSiteAPI` + `robotLinks` per Section 1.3.5, matching the citation-rather-than-redefine policy used for `isaac:namespace` (Section 2.1) and `isaac:NameOverride` (Section 2.10). Simulators previously reading `ros:frame:id` / `ros:frame:static` must now read `isaac:nameOverride` and derive the static/dynamic flag from the site's transform.*
 
 ### 2.8 Optical Frames
 OpenUSD cameras natively face the -Z axis, whereas ROS optical frames (REP 103) must face +Z. To bridge this without opaque simulator-side rotations, authors must decouple the physical sensor from its optical interface. Authors must create a child UsdGeomXform (e.g., `camera_optical_frame`) rotated 180 degrees around its local X-axis. All RosTopicAPI and RosFrameAPI schemas must be applied exclusively to this optical frame, ensuring deterministic data orientation in RViz.
