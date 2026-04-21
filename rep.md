@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA), Franco Cipollone (Ekumen) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh, Renato Gasoto (NVIDIA), Franco Cipollone (Ekumen) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -139,6 +139,7 @@ OpenUSD's native instancing mechanisms are designed for repetitive visual and st
     *   `float mimic:offset` (Default: `0.0`): Constant offset in the source joint's native units.
     *   *Note: UsdPhysics does not currently provide a joint coupling mechanism. This schema fills that gap. Should AOUSD/ASWF standardize an equivalent under `UsdPhysics`, this REP would adopt the upstream schema.*
 *   **Deformable Bodies:** A vendor-neutral schema for deformable bodies is not yet ratified. Assets must isolate deformable soft-body physics into feature layer for specific domain or vendor (see Section 1.2.1). The asset's default variant must provide a rigid-body fallback approximation for interoperability.
+*   **Neutral Inertia Tensor Extension:** Authors converting sources that retain the full 6-value symmetric tensor (URDF, SDFormat, MJCF) may additionally author `NewtonInertiaAPI.newton:inertia` in `physics.usd` to preserve the unrounded tensor (see Section 1.4). When both `NewtonInertiaAPI.newton:inertia` and the core decomposed form from the `Inertia Representation` bullet above are authored on the same prim, the `newton:inertia` tensor takes precedence for solvers that support it; all other solvers must fall back to the decomposed form. Converters emitting only one form must emit the decomposed form.
 
 #### 1.3.1 Collisions
 Collision geometries should explicitly specify `purpose="guide"` and `physics:approximation="none"`. To ensure assets function across both standard physics engines and advanced contact-rich solvers (e.g., Newton), assets should employ a "Dual-Fidelity Pattern" utilizing a `collision_fidelity` OpenUSD `VariantSet`:
@@ -168,6 +169,27 @@ To guarantee interoperability across different solvers, physical properties and 
 
 *   **Neutral Physics (`physics.usd`):** A universally shared layer containing exclusively core `UsdPhysics` schemas (rigid bodies, joints, limits, mass properties). This file must strictly adhere to the standard OpenUSD Physics specification and must not contain any vendor-specific extensions.
 *   **Engine Tuning (`physx.usd`, `mujoco.usd`, `isaac.usd`):** Engine-specific parameters (e.g., proprietary solver iterations, specialized friction models, GPU tensors) not covered by core OpenUSD schemas must be explicitly namespaced with a vendor prefix (e.g., `mujoco:`, `isaac:`). These must be strictly isolated within discrete "Proprietary Layers" (Section 1.2.1) and never authored in the baseline simulation payload or neutral physics layer. Authors must strive to minimize this proprietary layer to what is strictly necessary.
+
+#### 1.4.1 Cross-Solver Extensions via Newton Schemas
+
+The `Neutral Physics` bullet above admits only core `UsdPhysics` schemas. Several cross-solver behaviours have no core `UsdPhysics` analogue today (torsional / rolling friction, contact margin, articulation self-collision, mesh collision approximation hints, joint coupling, and the 6-value inertia tensor retained from URDF/SDFormat/MJCF sources). To keep these behaviours inside the neutral layer rather than forcing them into vendor proprietary layers, this REP admits the Linux Foundation Newton USD Schemas[NEWTON-SCHEMAS] as the staging-ground source for neutral physics extensions not yet present in `UsdPhysics`. The following Newton schemas may be authored in the `Neutral Physics` layer alongside core `UsdPhysics`:
+
+*   `NewtonMaterialAPI`: torsional and rolling friction parameters not expressible in `UsdPhysicsMaterialAPI`.
+*   `NewtonCollisionAPI`: contact margin / gap and related cross-solver collision parameters.
+*   `NewtonMeshCollisionAPI`: neutral mesh collision approximation hints (e.g., convex-decomposition and SDF directives).
+*   `NewtonArticulationRootAPI`: articulation self-collision and related cross-solver articulation settings.
+*   `NewtonMimicAPI`: joint coupling (see Section 1.3 Mimic Joints for the semantics).
+*   `NewtonInertiaAPI`: 6-value inertia tensor in the authored coordinate frame, for sources that retain the full symmetric tensor (see Section 1.3 Neutral Inertia Tensor Extension for precedence rules).
+
+The neutral physics layer must remain consumable by any compliant solver with graceful fallback: consumers must ignore unknown `newton:*` attributes and fall back to the `UsdPhysics` baseline where the Newton attribute is absent. Vendor-specific extensions (`physx:*`, `mujoco:*`, `isaac:*`) remain governed by the `Engine Tuning` bullet above and must not be authored in `physics.usd`.
+
+**Neutral-First Authoring Rule.** Whenever a behaviour is expressible through `UsdPhysics` or a Newton-staged neutral schema, authors must prefer the neutral attribute and must not substitute a vendor-specific equivalent. Vendor layers are reserved for behaviours that cannot be expressed neutrally (truly engine-specific tuning, or features not yet staged in the neutral layer). When both a neutral and a vendor opinion are authored on the same attribute family, the vendor opinion must compose on top of the neutral opinion rather than replace it, and must not contradict the neutral declaration's observable outcome. Simulators consuming the asset must honour the neutral opinion as the baseline behaviour and use vendor opinions only as additional tuning.
+
+**Feedback Loop to the Neutral Layer.** When a vendor attribute is consistently authored across assets to express a behaviour not yet covered by Newton-staged schemas or `UsdPhysics`, authors and simulator vendors should file a feature request against the Newton USD schemas project[NEWTON-SCHEMAS] to promote the behaviour into the neutral layer. This matches Newton's explicit staging-ground mandate. Leaving recurring vendor attributes in proprietary layers indefinitely defeats the staging model and should be treated as an interoperability bug, not a stable configuration.
+
+**Contact Physics Cross-Reference.** The torsional / rolling friction, contact margin, and articulation self-collision parameters cited in Section 1.3.4 Contact Physics are carried by the Newton schemas above (`NewtonMaterialAPI`, `NewtonCollisionAPI`, `NewtonArticulationRootAPI`). Solver-specific equivalents (PhysX, MuJoCo, Isaac) remain in their respective proprietary layers and may override the Newton values at composition time without replacing them, per the Neutral-First Authoring Rule.
+
+*Note: The Newton project explicitly defines its schemas as a proving ground for promotion into `UsdPhysics`. As AOUSD/ASWF ratify equivalents in the core `UsdPhysics` standard, this REP will migrate citations from `newton:*` to the ratified upstream schemas and deprecate the staging-ground prefix.*
 
 ---
 
@@ -411,6 +433,7 @@ A REP-XXXX compliance checker is to be developed and shared with the community. 
 *   **[REP-2003]** ROS Enhancement Proposal 2003, "Sensor Data and Map QoS Settings".
 *   **[GLTF-2.0]** Khronos Group, "glTF 2.0 Specification".
 *   **[GLTF-EXT-INSTANCING]** Khronos Group, "EXT_mesh_gpu_instancing Extension Specification".
+*   **[NEWTON-SCHEMAS]** Linux Foundation Newton Project. "Newton USD Schemas". URL: `https://github.com/newton-physics/newton-usd-schemas`
 
 ## Copyright
 This document will be placed in the public domain upon being submitted as PR to a REP proposal by original authors. This text will be changed to "This document is placed in the public domain".
