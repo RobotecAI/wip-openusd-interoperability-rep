@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA), Franco Cipollone (Ekumen) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh, Renato Gasoto (NVIDIA), Franco Cipollone (Ekumen) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -133,11 +133,13 @@ OpenUSD's native instancing mechanisms are designed for repetitive visual and st
     * *Kinematic Bodies:* Moving bodies that are animated but not dynamically driven by physics should set the physics:kinematicEnabled attribute to true.
     * *Dummy Frames:* Non-physical dummy frames (e.g., `camera_optical_frame`) must not possess a `PhysicsRigidBodyAPI`. They should be tracked using the `RosFrameAPI` as defined in Section 2.8.
 *   **Inertia Representation:** Unlike URDF and SDFormat's 6-value symmetric matrix, OpenUSD requires an eigendecomposed inertia tensor. Converters must mathematically decompose the source matrix into physics:diagonalInertia (eigenvalues) and physics:principalAxes (quaternion). This native decomposed form is the strict single source of truth; custom 6-value array attributes must not be authored or parsed.
-*   **Mimic Joints:** Joints whose position is a linear function of another joint (e.g., parallel gripper fingers, coupled mechanisms) must declare the coupling declaratively using `MimicJointAPI`, a **SingleApply** API schema applied to the follower joint. `MimicJointAPI` must only be applied to `UsdPhysicsRevoluteJoint` or `UsdPhysicsPrismaticJoint` prims. The coupling operates on the joint's native positional value.
-    *   `rel mimic:joint`: Relationship to the source joint. Must use a USD relationship (not a string attribute) to ensure correct path remapping under composition arcs. Mimic relationships must form a Directed Acyclic Graph (DAG); chained couplings are valid, but cycles are prohibited.
-    *   `float mimic:multiplier` (Default: `1.0`): Scale factor. `follower_position = multiplier * source_position + offset`.
-    *   `float mimic:offset` (Default: `0.0`): Constant offset in the source joint's native units.
-    *   *Note: UsdPhysics does not currently provide a joint coupling mechanism. This schema fills that gap. Should AOUSD/ASWF standardize an equivalent under `UsdPhysics`, this REP would adopt the upstream schema.*
+*   **Mimic Joints:** Joints whose position is a linear function of another joint (e.g., parallel gripper fingers, coupled mechanisms) must declare the coupling declaratively using the neutral `NewtonMimicAPI` schema defined by the Linux Foundation Newton USD schemas project[NEWTON-SCHEMAS]. `NewtonMimicAPI` is a **SingleApply** API schema applied to the follower joint and must only be applied to `UsdPhysicsRevoluteJoint` or `UsdPhysicsPrismaticJoint` prims. The coupling operates on the joint's native positional value and exposes:
+    *   `rel newton:mimic:joint`: Relationship to the source joint. The USD relationship (not a string attribute) ensures correct path remapping under composition arcs. Mimic relationships must form a Directed Acyclic Graph (DAG); chained couplings are valid, but cycles are prohibited.
+    *   `float newton:mimic:multiplier` (Default: `1.0`): Scale factor. `follower_position = multiplier * source_position + offset`.
+    *   `float newton:mimic:offset` (Default: `0.0`): Constant offset in the source joint's native units.
+    *   Authors should favor the neutral schema whenever it covers the required semantics: author `NewtonMimicAPI` in the neutral `physics.usd` layer (see Section 1.4) and resort to vendor-specific attributes only when the neutral route cannot express the behaviour. When vendor-specific tuning is required (e.g., PhysX `PhysxMimicJointAPI:rotX` with `gearing`/`naturalFrequency`), it must be isolated in the corresponding proprietary layer (e.g., `physx.usd`), must compose on top of the neutral `NewtonMimicAPI` opinion rather than replacing it, and must never contradict the neutral relationship.
+    *   *Note: UsdPhysics does not currently provide a joint coupling mechanism. The Newton USD schemas project explicitly serves as a staging ground for promotion into `UsdPhysics`. Should AOUSD/ASWF ratify an equivalent `UsdPhysics` schema, this REP will adopt the upstream schema and deprecate the `newton:` prefix in favour of the ratified namespace.*
+    *   *Note: When a vendor attribute is consistently authored across assets to express a behaviour not covered by `NewtonMimicAPI` or `UsdPhysics`, authors and simulator vendors should file a feature request against the Newton USD schemas project to promote the behaviour into the neutral layer. The proprietary-to-neutral migration path is the staging-ground model's explicit design goal; keeping recurring vendor attributes in proprietary layers indefinitely defeats it.*
 *   **Deformable Bodies:** A vendor-neutral schema for deformable bodies is not yet ratified. Assets must isolate deformable soft-body physics into feature layer for specific domain or vendor (see Section 1.2.1). The asset's default variant must provide a rigid-body fallback approximation for interoperability.
 
 #### 1.3.1 Collisions
@@ -411,6 +413,7 @@ A REP-XXXX compliance checker is to be developed and shared with the community. 
 *   **[REP-2003]** ROS Enhancement Proposal 2003, "Sensor Data and Map QoS Settings".
 *   **[GLTF-2.0]** Khronos Group, "glTF 2.0 Specification".
 *   **[GLTF-EXT-INSTANCING]** Khronos Group, "EXT_mesh_gpu_instancing Extension Specification".
+*   **[NEWTON-SCHEMAS]** Linux Foundation Newton Project. "Newton USD Schemas". URL: `https://github.com/newton-physics/newton-usd-schemas`
 
 ## Copyright
 This document will be placed in the public domain upon being submitted as PR to a REP proposal by original authors. This text will be changed to "This document is placed in the public domain".
