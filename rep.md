@@ -296,7 +296,7 @@ For each `UsdGeomCamera` (or other axis-sensitive sensor prim) that publishes RO
 
 1.  Author an explicit first-class child `UsdGeomXform` (e.g., `camera_optical_frame`, `lidar_optical_frame`) as a sibling-free descendant of the physical sensor prim.
 2.  Apply `xformOp:orient` on the child frame corresponding to a 180° rotation around its local X-axis, so that its local +Z aligns with the physical sensor's -Z (OpenUSD view direction), its local +X aligns with the physical sensor's +X (right), and its local -Y aligns with the physical sensor's +Y (up). This matches REP 103's optical-frame convention (+Z forward, +X right, +Y down).
-3.  Apply `RosFrameAPI` to the optical frame so the simulator broadcasts it to `/tf_static` relative to the parent sensor prim (see Section 2.7).
+3.  Apply `IsaacSiteAPI` to the optical frame (declaring its axis convention) and list the optical-frame prim in the articulation root's `rel isaac:physics:robotLinks` so the simulator broadcasts it to `/tf_static` per Section 2.7.
 4.  Apply every `RosTopicAPI` publishing axis-sensitive data (e.g., `sensor_msgs/msg/Image`, `sensor_msgs/msg/CameraInfo`, `sensor_msgs/msg/PointCloud2`) to the optical frame prim, not to the physical sensor prim. The `header.frame_id` in the published messages must resolve to the optical frame's TF name per Section 2.7.
 
 Simulators must not apply an implicit, unauthored rotation between the physical sensor and the published data. If the optical frame is absent, the simulator must treat the `RosTopicAPI` as misconfigured and refuse to publish (emitting a distinct warning), rather than silently rotating the data. This guarantees that RViz, MoveIt, and downstream perception stacks observe a deterministic optical-frame orientation regardless of which simulator produced the data.
@@ -316,15 +316,18 @@ def Xform "camera_link" (
         # ... other intrinsics ...
 
         def Xform "camera_optical_frame" (
-            prepend apiSchemas = ["RosFrameAPI", "RosTopicAPI"]
+            prepend apiSchemas = ["IsaacSiteAPI", "RosTopicAPI"]
         )
         {
             # 180 deg around local X: optical +Z == physical -Z (forward).
             quatf xformOp:orient = (0, 1, 0, 0)
             uniform token[] xformOpOrder = ["xformOp:orient"]
 
-            # RosFrameAPI: static TF broadcast relative to parent "camera".
-            bool ros:frame:static = true
+            # IsaacSiteAPI: carries the optical-frame axis convention.
+            # TF broadcast is declared by listing this prim in the
+            # articulation root's isaac:physics:robotLinks (Section 2.7).
+            # The static-vs-dynamic routing is derived from the absence
+            # of TimeSamples on the transform; no per-prim flag is needed.
 
             # RosTopicAPI: image stream authored on the optical frame.
             token ros:topic:role = "publisher"
