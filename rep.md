@@ -174,7 +174,7 @@ Assets containing articulations must declare a canonical, engine-neutral orderin
 
 The Robot Schema is treated as a staging-ground extension analogous to the Newton USD Schemas (Section 1.4): the schemas are engine-neutral by construction, already authored by Isaac Sim, Isaac Lab, the URDF-to-USD converter, and Newton-based pipelines, and serve the same cross-solver tensor-stability need. The `isaac:` prefix is preserved during the staging-ground phase; should AOUSD ratify an equivalent under `UsdPhysics` or a dedicated Robot schema namespace, this REP will migrate to the ratified prefix.
 
-Assets must place Robot Schema opinions in an isolated sublayer (e.g., `robot_schema.usd`) referenced from the same composition slot as `physics.usd` per Section 1.2.1, so solvers that do not consume the schema can ignore it without breaking the neutral physics layer.
+Assets must place Robot Schema opinions in an isolated sublayer (e.g., `robot_schema.usda`) referenced from the same composition slot as `physics.usda` per Section 1.2.1, so solvers that do not consume the schema can ignore it without breaking the neutral physics layer.
 
 *Note: Actuator and effort tensor ordering for Newton-based controllers is an anticipated extension of this same Robot Schema track — a canonical actuator list alongside `robotLinks`/`robotJoints`, keyed by relationship and aligned with the DOF ordering defined here. The specification is in development; when published by the Newton project, this REP will cite it without introducing a parallel neutral schema. Asset authors should keep the Robot Schema sublayer the single source of truth for all engine-neutral ordering metadata (links, joints, DOFs, and future actuators).*
 
