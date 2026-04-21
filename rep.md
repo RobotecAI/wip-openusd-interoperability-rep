@@ -182,13 +182,13 @@ The `Ros*API` schemas are **declarative authored data** describing *what* ROS in
 Compliant simulators are expected to materialize a simulator-native execution artifact from the authored `Ros*API` schemas at load time. The exact artifact is an implementation detail and may be, for example:
 
 *   A native ROS 2 node managed directly by the simulator's bridge.
-*   A generated execution-graph node graph authored into a proprietary layer (e.g., Isaac Sim OmniGraph nodes in `isaac.usd`, Gazebo system plugins, O3DE components).
+*   A generated execution-graph node graph authored into a proprietary layer (e.g., Isaac Sim OmniGraph nodes in `isaac.usda`, Gazebo system plugins, O3DE components).
 *   An interpreted dispatcher that dynamically binds the `Ros*API` to the relevant message I/O at simulation start.
 
 Three authoring rules follow from this:
 
 1.  **The authored `Ros*API` schemas are the single source of truth.** Simulator-native execution artifacts must be treated as a build product regenerated from the authored data. Assets must not carry hand-authored execution artifacts that shadow or contradict the `Ros*API` schemas.
-2.  **Execution artifacts are proprietary-layer content.** Generated or simulator-native graphs belong in the simulator's proprietary layer (Section 1.2.1) — e.g., `isaac.usd` for OmniGraph, `gazebo.usd` for Gazebo system plugins — and must never be authored into `ros.usd` or any other neutral layer.
+2.  **Execution artifacts are proprietary-layer content.** Generated or simulator-native graphs belong in the simulator's proprietary layer (Section 1.2.1) — e.g., `isaac.usda` for OmniGraph, `gazebo.usda` for Gazebo system plugins — and must never be authored into `ros.usda` or any other neutral layer.
 3.  **Round-tripping is not guaranteed.** An execution artifact produced by one simulator is not expected to be consumed by another. Only the authored `Ros*API` schemas are portable.
 
 Simulators that currently rely on hand-authored execution graphs (e.g., Isaac Sim's current OmniGraph-based ROS 2 workflow) are expected to provide a `Ros*API` → graph code generator as part of their REP conformance, with the hand-authored graphs moved into the proprietary layer as a compatibility fallback.
