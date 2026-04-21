@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA), Franco Cipollone (Ekumen) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh, Renato Gasoto (NVIDIA), Franco Cipollone (Ekumen) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -162,6 +162,34 @@ Collision meshes are not subject to this VariantSet; their fidelity is governed 
 #### 1.3.4 Contact Physics
 To ensure deterministic contact dynamics across engines, authors must bind a `UsdShadeMaterial` bearing the `UsdPhysicsMaterialAPI` to collision geometries. This material must define `physics:staticFriction`, `physics:dynamicFriction`, and `physics:restitution`. To prevent conflicts with visual shading networks, the physical material must be bound to the collision geometry explicitly using the physics material purpose (`material:binding:physics`), rather than the default all-purpose binding. Because engines utilize distinct friction models, converters must approximate these baseline values into their specific representations (e.g., SDF `<surface>` or MJCF `<friction>`).
 
+#### 1.3.5 Canonical Kinematic Ordering
+`UsdPhysicsJoint` relational targeting (`body0`/`body1`) reconstructs the kinematic graph but does not impose a stable ordering on the link and joint sets. Engines performing a physics-graph traversal (PhysX, Newton, MuJoCo) may emit different DFS/BFS orderings from the same articulation, which breaks tensor layouts (observation/action vectors, Jacobians), controller DOF indexing, and `sensor_msgs/JointState` field order across simulators.
+
+Assets containing articulations must declare a canonical, engine-neutral ordering using the Robot Schema[ISAAC-ROBOT-SCHEMA] (`IsaacRobotAPI`, `IsaacLinkAPI`, `IsaacJointAPI`). Concretely:
+
+*   `IsaacRobotAPI` is applied to the articulation root prim and exposes `rel isaac:physics:robotLinks` and `rel isaac:physics:robotJoints` — ordered relationship lists that define the canonical link and joint sequence for downstream tensor layouts.
+*   `IsaacLinkAPI` and `IsaacJointAPI` are applied to the corresponding `PhysicsRigidBodyAPI` and `UsdPhysicsJoint` prims to participate in the ordered lists.
+*   Multi-axis joints (D6, spherical) declare `isaac:physics:DofOffsetOpOrder` to specify the flattened DOF ordering (`TransX`, `TransY`, `TransZ`, `RotX`, `RotY`, `RotZ`).
+*   The link/joint lists may declare a proper subset of the kinematic tree when an assembly contains prims (e.g., gripper internals, non-actuated cosmetic links) that should not participate in robot-state reporting.
+
+The Robot Schema is treated as a staging-ground extension analogous to the Newton USD Schemas (Section 1.4): the schemas are engine-neutral by construction, already authored by Isaac Sim, Isaac Lab, the URDF-to-USD converter, and Newton-based pipelines, and serve the same cross-solver tensor-stability need. The `isaac:` prefix is preserved during the staging-ground phase; should AOUSD ratify an equivalent under `UsdPhysics` or a dedicated Robot schema namespace, this REP will migrate to the ratified prefix.
+
+Assets must place Robot Schema opinions in an isolated sublayer (e.g., `robot_schema.usd`) referenced from the same composition slot as `physics.usd` per Section 1.2.1, so solvers that do not consume the schema can ignore it without breaking the neutral physics layer.
+
+*Note: Actuator and effort tensor ordering for Newton-based controllers is an anticipated extension of this same Robot Schema track — a canonical actuator list alongside `robotLinks`/`robotJoints`, keyed by relationship and aligned with the DOF ordering defined here. The specification is in development; when published by the Newton project, this REP will cite it without introducing a parallel neutral schema. Asset authors should keep the Robot Schema sublayer the single source of truth for all engine-neutral ordering metadata (links, joints, DOFs, and future actuators).*
+
+#### 1.3.6 ROS-Facing Metadata on the Robot Schema
+
+The Robot Schema cited in Section 1.3.5 is also the canonical source for the ROS-facing identifiers that Section 2 refers to under the `ros:*` prefix:
+
+*   **Namespace (`ros:context:namespace` in Section 2.1.1).** The namespace segment published on the ROS graph is carried by the Robot Schema attribute `isaac:namespace`, already consumed by Isaac Sim, Isaac Lab, URDF-to-USD converters, and Newton-based pipelines. Where Section 2.1.1 reads `ros:context:namespace`, the normative storage during the staging-ground phase is `isaac:namespace` on the same prim. Simulators must accept either spelling on read, and authors should prefer `isaac:namespace` on write until the ratified neutral prefix is assigned.
+*   **Joint name override (`ros:joint:name` in Section 2.10).** The custom joint name used for `JointState` messages, `FollowJointTrajectory` goals, `ros2_control`, and round-tripping to URDF/MJCF is carried by the Robot Schema attribute `isaac:NameOverride` on prims bearing `IsaacJointAPI`. Where Section 2.10 reads `ros:joint:name`, the normative storage is `isaac:NameOverride` on the same prim. Simulators must accept either spelling on read. If neither is authored, simulators must fall back to the validated Prim name (Section 2.10 unchanged).
+*   **Link name override.** The analogous link-side override, `isaac:nameOverride` on prims bearing `IsaacLinkAPI`, is consumed by `ROS 2 Publish Joint State`, `ROS 2 Publish Transform Tree`, and the `Isaac Joint Name Resolver`. It has no dedicated citation in Section 2; TF frame names continue to be computed from the validated Prim name per Section 2.7 unless `isaac:nameOverride` is present, in which case the override wins.
+
+The `isaac:` prefix is retained during the staging-ground phase, matching the treatment of `newton:*` in Section 1.4. Should AOUSD ratify an equivalent under `UsdPhysics`, a dedicated Robot Schema namespace, or under `ros:*`, this REP will migrate the canonical spellings accordingly. Until then, the Robot Schema attributes are authoritative, the Section 2 `ros:*` names are accepted aliases, and compliant tooling must read both.
+
+Redefining the `isaac:*` attributes under a parallel `ros:*` namespace would discard working tooling (URDF/MJCF converters, Isaac Sim's joint-state and TF publishers, Isaac Lab multi-robot setups, the Newton toolchain) without adding capability. The citation path is the lower-risk transition.
+
 ### 1.4 Isolation of vendor and physics specific extensions
 
 To guarantee interoperability across different solvers, physical properties and engine-specific parameters must be explicitly decoupled into separate functional layers:
@@ -177,7 +205,7 @@ Neither OpenUSD nor glTF 2.0 currently standardize the specification of ROS inte
 
 ### 2.1 The ROS Context (`RosContextAPI`)
 The root prim of a ROS-interfaced simulation asset may define its context namespace.
-*   `string ros:context:namespace`: Prefixes all topics within this scope (e.g., `robot_1`). Multiple values across the hierarchy are concatenated in top-down order. See Section 2.1.1 for full rules.
+*   `string ros:context:namespace`: Prefixes all topics within this scope (e.g., `robot_1`). Multiple values across the hierarchy are concatenated in top-down order. See Section 2.1.1 for full rules. *During the staging-ground phase, the normative storage is `isaac:namespace` on the same prim per Section 1.3.6; simulators must accept either spelling on read.*
 *   `int ros:context:domain_id` (Optional): Overrides the default ROS Domain ID for interfaces descending from this context.
 *   `string ros:context:parent_frame` (Optional, Default: `"world"`): Defines the parent `frame_id` used when the simulator broadcasts the ground-truth transform of this context's root prim. It is only valid for the top-most context in the resolved USD Stage and ignored otherwise.
 
@@ -304,7 +332,7 @@ Simulator-level interfaces are prohibited in assets to avoid clashes, including:
 A number of concepts in ROS (e.g. robot descriptions, controllers) rely on joints names. 
 To ensure that joints are correctly identified and mapped to said concepts, the custom property `ros:joint:name` must be applied to all Prims bearing built-in `UsdPhysicsJoint` schema. 
 This string value is source of joint name for all ROS communications (e.g., `FollowJointTrajectory` action goals, `JointState` messages), intergration with ROS tools (e.g., `ros2_control`), and mapping to other formats (e.g., MJCF's `<joint name="">`).
-If this property is missing, simulators must fall back to using the prim name.
+If this property is missing, simulators must fall back to using the prim name. *During the staging-ground phase, the normative storage is `isaac:NameOverride` on the same `UsdPhysicsJoint` per Section 1.3.6; simulators must accept either spelling on read.*
 
 ## 3. Export and Conversion
 
@@ -408,6 +436,7 @@ A REP-XXXX compliance checker is to be developed and shared with the community. 
 *   **[NVIDIA-ASSETS]** NVIDIA, "Content Guidelines and Requirements". URL: `https://docs.omniverse.nvidia.com/kit/docs/asset-requirements/latest/index.html`
 *   **[ASWF-USD-ASSETS]** Academy Software Foundation USD Working Group, "Guidelines for Structuring USD Assets". (Targeting Commit: `main` as of March 2026).
 *   **[AOUSD-OPENPBR]** Alliance for OpenUSD, "OpenPBR Surface Specification".
+*   **[ISAAC-ROBOT-SCHEMA]** NVIDIA Isaac Sim. "Robot Schema (`IsaacRobotAPI`, `IsaacLinkAPI`, `IsaacJointAPI`)". Staging-ground extension for engine-neutral robot-level ordering and ROS-facing metadata.
 *   **[REP-2003]** ROS Enhancement Proposal 2003, "Sensor Data and Map QoS Settings".
 *   **[GLTF-2.0]** Khronos Group, "glTF 2.0 Specification".
 *   **[GLTF-EXT-INSTANCING]** Khronos Group, "EXT_mesh_gpu_instancing Extension Specification".
