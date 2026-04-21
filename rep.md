@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA), Franco Cipollone (Ekumen) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh, Renato Gasoto (NVIDIA), Franco Cipollone (Ekumen) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -69,16 +69,21 @@ This REP adopts the ASWF Guidelines for Structuring USD Assets.
 As illustrated in Figure 1, assets should be divided into functional layers composed via References and Payloads:
 
 *   **Layer Separation:** Assets must use functional layering (ETL) to isolate core OpenUSD data from simulation and ROS-specific schemas. This prevents "Unknown Schema" errors in standard tools and enables modular updates.
+*   **Layer Encoding:** OpenUSD provides two binary-equivalent file formats: ASCII (`.usda`) and the binary Crate (`.usdc`). To preserve the layers as human- and machine-readable interchange surfaces — reviewable in a text editor, diffable in version control, parseable by lightweight tooling, and directly inspectable by AI-assisted asset pipelines — this REP requires:
+    *   **Feature and proprietary layers** (`physics.usda`, `ros.usda`, vendor layers such as `physx.usda`, `mujoco.usda`, `isaac.usda`) and **structural layers** (`base.usda`, `instances.usda`, the asset entry point, and any `robot_schema.usda` sublayer) must use the ASCII `.usda` encoding. These layers declare schemas, relationships, and composition arcs, and their small size means the crate format offers no meaningful load-time benefit.
+    *   **Materials and shaders** (`materials.usda`) must use `.usda`. UsdPreviewSurface networks and texture-graph wiring are schema-heavy and small relative to the referenced texture payloads.
+    *   **Mesh-heavy data** must use the binary Crate `.usdc` encoding. Specifically, `geometries.usdc` and any additional heavy geometry sublayers (LOD variants, point clouds, splat fields) must be authored as `.usdc` to keep payload load times and repository sizes tractable. An author emitting these layers as `.usda` would produce multi-megabyte text files that neither diff usefully nor load quickly.
+    *   The above specializations take precedence over the generic `.usd` extension used elsewhere in this document for brevity. Tooling that encounters a `.usd` file must treat it per the OpenUSD-standard auto-detection rules.
 *   **The Base Layer:** The core data must be decomposed into granular, functional files to maximize deduplication and performance:
-    *   `geometries.usd`: Contains pure mesh topology and vertices (no physics, no schemas), typically as `.usdc`.
-    *   `materials.usd`: Contains material and look-dev definitions.
-    *   `instances.usd`: (Optional, recommended): Assembles geometries and materials via references.
-    *   `base.usd`: The pure kinematic hierarchy (Xforms), referencing the underlying instances and geometries without physical or execution logic.
+    *   `geometries.usdc`: Contains pure mesh topology and vertices (no physics, no schemas). Binary Crate encoding per the Layer Encoding rule above.
+    *   `materials.usda`: Contains material and look-dev definitions.
+    *   `instances.usda`: (Optional, recommended): Assembles geometries and materials via references.
+    *   `base.usda`: The pure kinematic hierarchy (Xforms), referencing the underlying instances and geometries without physical or execution logic.
 *   **Features (The Domain-Specific Layers):** Domain metadata must be isolated into overlay files, including:
-    *    `physics.usd`: Contains `UsdPhysics` rigid bodies and joints.
-    *    `ros.usd`: Contains the `Ros*API` schemas.
-*   **Entry Point (`[asset_name].usd`):** The final distributed asset must be a lightweight interface layer that uses **Payloads** to load the Features. 
-*   **Proprietary Layer:** Simulator-specific implementations (e.g., proprietary execution graphs) must be limited to what is strictly necessary and confined to a separate proprietary layer (e.g., `isaac.usd`, `o3de.usd`).
+    *    `physics.usda`: Contains `UsdPhysics` rigid bodies and joints.
+    *    `ros.usda`: Contains the `Ros*API` schemas.
+*   **Entry Point (`[asset_name].usda`):** The final distributed asset must be a lightweight interface layer that uses **Payloads** to load the Features.
+*   **Proprietary Layer:** Simulator-specific implementations (e.g., proprietary execution graphs) must be limited to what is strictly necessary and confined to a separate proprietary layer (e.g., `isaac.usda`, `o3de.usda`).
 
 
 #### 1.2.2 The Composition Model
