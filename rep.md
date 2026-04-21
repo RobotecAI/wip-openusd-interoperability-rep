@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA), Franco Cipollone (Ekumen) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh, Renato Gasoto (NVIDIA), Franco Cipollone (Ekumen) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -388,6 +388,23 @@ In addition to general extension schema rules, sensor schemas must follow these 
 *   **Ground Truth:** Sensor schemas must emulate measurable phenomena to ensure valid Software-in-the-Loop (SiL) testing. Simulator-generated Ground Truth artifacts (e.g., semantic segmentations, bounding boxes) must not be bundled into physical sensor schemas; they should be explicitly requested via dedicated annotator schemas.
 *   **Traversal:** Sensor schemas must be applied directly to the `UsdGeomXform` or `UsdGeomCamera` defining their physical origin and local coordinate frame. To ensure efficient parser discovery, these prims must reside in the asset's lightweight, traversable kinematic hierarchy.
 *   **Graceful Degradation:** Sensor schemas must define a functional, universal baseline of parameters. Advanced, engine-specific behaviors (e.g., proprietary rendering profiles, custom noise models) must be authored exclusively via vendor-namespaced custom attributes (e.g., `isaac:`, `gazebo:`). Simulators must safely ignore unrecognized namespaces and gracefully fall back to the universal baseline.
+
+#### 4.1.4 Robot-Specific Feature Schemas
+
+Beyond sensors and controllers, simulators ship additional robot-specific authoring primitives — suction/surface grippers, named pose libraries, tool-mount sites, attachment-point declarations, etc. These belong in the `ros-simulation/openusd-schemas` registry as robot-feature extension schemas and must follow:
+
+*   **Feature Isolation:** Each robot-feature schema addresses a single authoring concern (gripper modelling, pose library, mount point, IK target, etc.). Bundled schemas that couple multiple concerns (e.g., gripping *and* naming *and* TF broadcasting) must be decomposed before submission.
+*   **Neutrality by Construction:** A submitted schema must be implementable in at least two simulators or physics engines without vendor-specific runtime assumptions. Vendor-only mechanics (e.g., a specific suction model, a specific IK solver) belong in the vendor's proprietary layer, not in the registry schema.
+*   **Composition Over Invention:** Features that overlap with existing neutral schemas must compose with them rather than duplicate their attributes. For example, a tool-mount site that needs to broadcast a TF frame must carry `RosFrameAPI` (Section 2.7); it must not invent its own frame-broadcast attributes. Named poses must reference `UsdPhysicsJoint` prims by relationship and defer naming to the Robot Schema name-override attributes (Section 2.10) rather than carrying duplicate strings. Gripper schemas must declare their attached bodies via `UsdPhysicsJoint` / `UsdCollectionAPI` and interface with ROS via `RosTopicAPI`/`RosServiceAPI`/`RosActionAPI` rather than inventing a parallel transport.
+*   **Staging-Ground Prefix:** Submissions originating from a vendor implementation must retain the vendor prefix during the staging-ground phase (matching the treatment of `newton:*` in Section 1.4 and `isaac:*` in the Robot Schema citation). Promotion to a neutral prefix happens at ratification time, once a second implementation has adopted the schema.
+
+Existing vendor schemas that are candidates for submission under this rule include (non-exhaustively):
+
+*   Surface/suction gripper schemas (e.g., `IsaacSurfaceGripper`) — model a suction or magnetic gripper with attachment points, grip distance, and shear/coaxial limits. Must delegate to `UsdPhysicsJoint` (typically D6 with distance limits) for the attachment joint and to `RosServiceAPI`/`RosActionAPI` for grip/release control.
+*   Named pose schemas (e.g., `IsaacNamedPose`) — store named joint configurations (and optional Cartesian IK targets) under a Robot Schema-bearing root. Must reference joints by relationship, store configurations as joint-position arrays keyed on those relationships, and avoid duplicating joint-name strings.
+*   Mount-point / site schemas (e.g., `IsaacSiteAPI`) — declare named local frames for tooling or calibration references. Submissions must resolve the overlap with `RosFrameAPI`: if the site is ROS-visible, it must compose with `RosFrameAPI` for TF broadcasting rather than carry its own broadcast flag; if it is a pure internal reference (e.g., IK target), the schema must document that explicitly.
+
+Schemas that cannot satisfy these rules are not rejected outright but must remain in a vendor proprietary layer (e.g., `isaac.usd`) until a cross-simulator equivalent is proposed.
 
 ### 4.2 Compliant Assets 
 
