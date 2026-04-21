@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **REP** | XXXX |
 | **Title** | OpenUSD Conventions for Simulation Asset Interoperability |
-| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh (NVIDIA), Franco Cipollone (Ekumen) |
+| **Authors** | Adam Dabrowski, Mateusz Zak, Michal Pelka (Robotec.ai), Ayush Ghosh, Renato Gasoto (NVIDIA), Franco Cipollone (Ekumen) |
 | **Status** | Draft |
 | **Type** | Standards Track |
 | **Content-Type** | text/markdown |
@@ -290,7 +290,53 @@ Instead, simulators should follow a hybrid implicit/explicit approach for broadc
 Note: The broadcast frequency of TF frames is an implementation detail left to the simulator's runtime configuration.
 
 ### 2.8 Optical Frames
-OpenUSD cameras natively face the -Z axis, whereas ROS optical frames (REP 103) must face +Z. To bridge this without opaque simulator-side rotations, authors must decouple the physical sensor from its optical interface. Authors must create a child UsdGeomXform (e.g., `camera_optical_frame`) rotated 180 degrees around its local X-axis. All RosTopicAPI and RosFrameAPI schemas must be applied exclusively to this optical frame, ensuring deterministic data orientation in RViz.
+OpenUSD cameras natively face the -Z axis, whereas ROS optical frames (REP 103) must face +Z. To bridge this without opaque simulator-side rotations, authors must decouple the physical sensor from its optical interface.
+
+For each `UsdGeomCamera` (or other axis-sensitive sensor prim) that publishes ROS data, the author must:
+
+1.  Author an explicit first-class child `UsdGeomXform` (e.g., `camera_optical_frame`, `lidar_optical_frame`) as a sibling-free descendant of the physical sensor prim.
+2.  Apply `xformOp:orient` on the child frame corresponding to a 180° rotation around its local X-axis, so that its local +Z aligns with the physical sensor's -Z (OpenUSD view direction), its local +X aligns with the physical sensor's +X (right), and its local -Y aligns with the physical sensor's +Y (up). This matches REP 103's optical-frame convention (+Z forward, +X right, +Y down).
+3.  Apply `RosFrameAPI` to the optical frame so the simulator broadcasts it to `/tf_static` relative to the parent sensor prim (see Section 2.7).
+4.  Apply every `RosTopicAPI` publishing axis-sensitive data (e.g., `sensor_msgs/msg/Image`, `sensor_msgs/msg/CameraInfo`, `sensor_msgs/msg/PointCloud2`) to the optical frame prim, not to the physical sensor prim. The `header.frame_id` in the published messages must resolve to the optical frame's TF name per Section 2.7.
+
+Simulators must not apply an implicit, unauthored rotation between the physical sensor and the published data. If the optical frame is absent, the simulator must treat the `RosTopicAPI` as misconfigured and refuse to publish (emitting a distinct warning), rather than silently rotating the data. This guarantees that RViz, MoveIt, and downstream perception stacks observe a deterministic optical-frame orientation regardless of which simulator produced the data.
+
+<details>
+<summary>Example: Camera with an explicit optical frame</summary>
+
+```
+def Xform "camera_link" (
+    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+)
+{
+    def Camera "camera"
+    {
+        # OpenUSD camera: faces -Z by convention.
+        float focalLength = 24
+        # ... other intrinsics ...
+
+        def Xform "camera_optical_frame" (
+            prepend apiSchemas = ["RosFrameAPI", "RosTopicAPI"]
+        )
+        {
+            # 180 deg around local X: optical +Z == physical -Z (forward).
+            quatf xformOp:orient = (0, 1, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:orient"]
+
+            # RosFrameAPI: static TF broadcast relative to parent "camera".
+            bool ros:frame:static = true
+
+            # RosTopicAPI: image stream authored on the optical frame.
+            token ros:topic:role = "publisher"
+            string ros:topic:name = "image_raw"
+            string ros:topic:type = "sensor_msgs/msg/Image"
+            double ros:topic:publish_rate = 30.0
+        }
+    }
+}
+```
+
+</details>
 
 ### 2.9 Prohibited Interfaces
 
