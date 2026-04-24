@@ -175,25 +175,16 @@ To guarantee interoperability across different solvers, physical properties and 
 
 Neither OpenUSD nor glTF 2.0 currently standardize the specification of ROS interfaces. This section defines a set of declarative, engine-agnostic API schemas (of type `SingleApply`). Simulators are responsible for reading these schemas and generating their respective underlying execution logic.
 
-### 2.0 Declarative Intent vs. Simulator Execution
+### 2.0 Declarative Intent and Source of Truth
 
-The `Ros*API` schemas are **declarative authored data** describing *what* ROS interfaces an asset exposes. They are not a runtime execution format and they do not prescribe *how* a simulator realizes the interface.
+The `Ros*API` schemas are **declarative authored data** describing *what* ROS interfaces an asset exposes. They do not prescribe *how* a simulator realizes those interfaces at runtime. The mechanism a simulator uses to bind a declared interface to its internal message I/O is an implementation detail outside the scope of this REP.
 
-Compliant simulators are expected to materialize a simulator-native execution artifact from the authored `Ros*API` schemas at load time. The exact artifact is an implementation detail and may be, for example:
+Three authoring rules follow from this separation:
 
-*   A native ROS 2 node managed directly by the simulator's bridge.
-*   A generated execution-graph node graph authored into a proprietary layer (e.g., Isaac Sim OmniGraph nodes in `isaac.usda`, Gazebo system plugins, O3DE components).
-*   An interpreted dispatcher that dynamically binds the `Ros*API` to the relevant message I/O at simulation start.
+1.  **The authored `Ros*API` schemas are the single source of truth for ROS interface intent.** Any simulator-native runtime artifact derived from them must remain consistent with the authored data. Assets must not carry duplicated or shadow definitions of the same ROS interface in another form (e.g., a hand-authored execution graph or a proprietary attribute set) that could diverge from the `Ros*API` schemas.
+2.  **Simulator-native runtime artifacts are proprietary-layer content.** When a simulator chooses to materialize the authored intent into a persisted, simulator-specific representation, that representation must be confined to the simulator's proprietary layer (Section 1.2.1) and must never be authored into the neutral `ros.usda` layer.
+3. Round-tripping of simulator-native runtime artifacts across simulators is not guaranteed; only the authored `Ros*API` schemas are portable.
 
-Three authoring rules follow from this:
-
-1.  **The authored `Ros*API` schemas are the single source of truth.** Simulator-native execution artifacts must be treated as a build product regenerated from the authored data. Assets must not carry hand-authored execution artifacts that shadow or contradict the `Ros*API` schemas.
-2.  **Execution artifacts are proprietary-layer content.** Generated or simulator-native graphs belong in the simulator's proprietary layer (Section 1.2.1) — e.g., `isaac.usda` for OmniGraph, `gazebo.usda` for Gazebo system plugins — and must never be authored into `ros.usda` or any other neutral layer.
-3.  **Round-tripping is not guaranteed.** An execution artifact produced by one simulator is not expected to be consumed by another. Only the authored `Ros*API` schemas are portable.
-
-Simulators that currently rely on hand-authored execution graphs (e.g., Isaac Sim's current OmniGraph-based ROS 2 workflow) are expected to provide a `Ros*API` → graph code generator as part of their REP conformance, with the hand-authored graphs moved into the proprietary layer as a compatibility fallback.
-
-*Note: This REP intentionally does not specify the code-generator API. Each simulator is free to implement one, share one across simulators (via a common tool), or parse the schemas directly at runtime. The Compliance Checker (see Tools) validates the authored data, not the generated execution artifact.*
 
 ### 2.1 The ROS Context (`RosContextAPI`)
 The root prim of a ROS-interfaced simulation asset may define its context namespace.
@@ -304,7 +295,7 @@ Instead, simulators should follow a hybrid implicit/explicit approach for broadc
     *   Prims bearing only `RosTopicAPI`, `RosServiceAPI`, or `RosActionAPI` do not generate TF frames. An interface prim's `frame_id` is determined by its nearest ancestor that is a TF frame (implicit or explicit).
 
 *   **Explicit TF Broadcasting (`RosFrameAPI`):** To publish TFs for non-physical dummy frames (e.g., a kinematic `grasp_point`, a `camera_optical_frame`), asset authors must apply the `RosFrameAPI` schema to the target `UsdGeomXform` Prim.
-    *   `string ros:frame:id` (Optional): Overrides the TF frame name. If omitted, the validated Prim name is used.
+    *   `string ros:frame:id` (Optional): Overrides the TF frame name. If omitted, the validated Prim Display name is used, falling back to the Prim name if Display name is not authored.
     *   `bool ros:frame:static` (Optional, Default: `true`): Defines the broadcast destination. If `true`, the simulator must broadcast the frame to `/tf_static` relative to its USD parent. If `false` (e.g., an Xform animated by USD TimeSamples), it must be broadcast to `/tf`.
 
 Note: The broadcast frequency of TF frames is an implementation detail left to the simulator's runtime configuration.
@@ -322,9 +313,9 @@ Simulator-level interfaces are prohibited in assets to avoid clashes, including:
 ### 2.10 Custom names to ROS joints.
 
 A number of concepts in ROS (e.g. robot descriptions, controllers) rely on joints names. 
-To ensure that joints are correctly identified and mapped to said concepts, the custom property `ros:joint:name` must be applied to all Prims bearing built-in `UsdPhysicsJoint` schema. 
+To ensure that joints are correctly identified and mapped to said concepts, the custom property `ros:joint:name` must be applied to all Prims bearing built-in `UsdPhysicsJoint` schema.
 This string value is source of joint name for all ROS communications (e.g., `FollowJointTrajectory` action goals, `JointState` messages), intergration with ROS tools (e.g., `ros2_control`), and mapping to other formats (e.g., MJCF's `<joint name="">`).
-If this property is missing, simulators must fall back to using the prim name.
+If this property is missing, simulators must fall back to using the prim display name, if authored, then prim name.
 
 ## 3. Export and Conversion
 
